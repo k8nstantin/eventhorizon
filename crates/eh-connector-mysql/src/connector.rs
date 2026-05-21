@@ -193,17 +193,12 @@ impl Connector for MysqlConnector {
         })
     }
 
+    #[instrument(skip(self, scope))]
     async fn build_catalog(
         &self,
-        _scope: &SourceAccessScope,
+        scope: &SourceAccessScope,
     ) -> ConnectorResult<Arc<dyn CatalogProvider>> {
-        // The real implementation lands in PR 1.8.4: introspects
-        // information_schema (or honours the explicit allow-list), builds
-        // an Arrow schema per table, returns a CatalogProvider whose
-        // tables run parameterised SELECTs through this connector's pool.
-        Err(ConnectorError::Backend(
-            "MysqlConnector::build_catalog is not yet implemented in 1.8.3 (lands in 1.8.4)".into(),
-        ))
+        crate::catalog::build_mysql_catalog(&self.pool, scope).await
     }
 }
 

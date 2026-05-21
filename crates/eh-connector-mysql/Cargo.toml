@@ -27,6 +27,8 @@ hex = "0.4"
 # eventhorizon-access-modes). The MySQL connector exposes a
 # CatalogProvider; DF drives the data path.
 datafusion.workspace = true
+# Single-batch stream adapter for the MysqlScanExec ExecutionPlan.
+futures = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

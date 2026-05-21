@@ -23,12 +23,16 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod arrow_schema;
+mod catalog;
 mod config;
 mod connector;
 mod factory;
 mod ident;
 mod insert;
+mod introspection;
 mod query;
+mod table_provider;
 mod types;
 
 pub use config::{MysqlSourceConfig, MysqlSslMode};
