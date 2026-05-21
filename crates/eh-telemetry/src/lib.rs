@@ -20,9 +20,15 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use thiserror::Error;
 use tracing_subscriber::EnvFilter;
+
+/// Re-export of the Prometheus handle the REST `/metrics` endpoint calls
+/// `render()` on. Re-exported here so dependent crates (e.g., `eh-bin`,
+/// `eh-edge-rest`) take only `eh-telemetry` as their dep surface for
+/// telemetry types — the exporter crate is an implementation detail.
+pub use metrics_exporter_prometheus::PrometheusHandle;
 
 /// Stable metric names. Every emission across the workspace uses these
 /// constants so renames are a single PR and dashboards survive.
@@ -126,5 +132,4 @@ mod tests {
         assert_eq!(label::OUTCOME, "outcome");
         assert_eq!(label::CODE, "code");
     }
-
 }

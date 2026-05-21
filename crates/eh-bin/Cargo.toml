@@ -10,11 +10,34 @@ repository.workspace = true
 name = "eh-bin"
 path = "src/main.rs"
 
+# Connector inclusion is operator-controlled at build time via Cargo
+# features. NO connector type is hardcoded into the binary — the kernel
+# talks only to the `ConnectorRegistry` (zero-trust §15: dogfood the
+# public path). Adding a new connector kind is two changes here: declare
+# the optional dep + add a feature that pulls it in. No source-code
+# branches need to know it exists.
+[features]
+default = ["connector-mysql"]
+connector-mysql = ["dep:eh-connector-mysql"]
+
 [dependencies]
+eh-core = { path = "../eh-core" }
+eh-config = { path = "../eh-config" }
+eh-connector-api = { path = "../eh-connector-api" }
+eh-edge-rest = { path = "../eh-edge-rest" }
 eh-telemetry = { path = "../eh-telemetry" }
-tokio.workspace = true
+eh-connector-mysql = { path = "../eh-connector-mysql", optional = true }
+
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 tracing.workspace = true
 axum.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+
+[dev-dependencies]
+async-trait.workspace = true
+serde_yaml.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+eh-protocol = { path = "../eh-protocol" }

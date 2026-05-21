@@ -38,11 +38,11 @@ sources:
 entities:
   Customer:
     fields:
-      - { name: id,         type: uuid,      nullable: false, pii: false }
-      - { name: name,       type: string,    nullable: false, pii: true }
-      - { name: email,      type: string,    nullable: false, pii: true }
-      - { name: signup_at,  type: timestamp, nullable: false, pii: false }
-      - { name: ltv_usd,    type: decimal,   nullable: false, pii: false }
+      - { name: id,         data_type: uuid,      nullable: false, pii: false }
+      - { name: name,       data_type: string,    nullable: false, pii: true  }
+      - { name: email,      data_type: string,    nullable: false, pii: true  }
+      - { name: signup_at,  data_type: timestamp, nullable: false, pii: false }
+      - { name: ltv_usd,    data_type: decimal,   nullable: false, pii: false }
 
 bindings:
   - entity: Customer
