@@ -31,7 +31,7 @@ mod source;
 
 pub use cache::ConfigCache;
 pub use compiled::CompiledConfig;
-pub use config::Config;
+pub use config::{Config, EntityFromYaml};
 pub use errors::{ConfigError, ConfigResult};
 pub use loader::{load_from_env, load_from_path};
 pub use routing::{RoutingMatch, RoutingRule};

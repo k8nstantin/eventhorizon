@@ -1,6 +1,6 @@
 [package]
 name = "eh-compiler"
-description = "EventHorizon: Intent → DataFusion LogicalPlan compilation + Artifact compaction"
+description = "EventHorizon: pre-execution intent validation (Phase 1) + DataFusion plan compilation (Phase 4+)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,6 @@ repository.workspace = true
 [lib]
 
 [dependencies]
+eh-core = { path = "../eh-core" }
+serde_json.workspace = true
+thiserror.workspace = true
