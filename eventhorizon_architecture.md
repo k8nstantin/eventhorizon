@@ -267,33 +267,188 @@ In order of value:
 
 ## 5. Control Plane — Postgres
 
-The control plane is **boring on purpose**: Postgres, transactions, replication, the well-trodden path.
+The control plane is **boring on purpose**: Postgres, transactions, replication, the well-trodden path. See also the dedicated [SCHEMA.md](./SCHEMA.md) for table-level designs.
 
-### What it holds
+### 5.1 Universal data discipline (every store, every table)
 
-- `agents` — id, name, token_hash, status, cost_budget, metadata
-- `entities` — id, name, version, description, json_schema
-- `sources` — id, kind, config (jsonb, secret-refs only), ring (staging/production), status
-- `entity_bindings` — entity_id, source_id, table_ref, field_map (jsonb), supported_actions, profile
-- `routing_rules` — entity_id, predicate (jsonb), target_source_id, priority, version
-- `capabilities` — agent_id, entity_id, allowed_actions, conditions (jsonb)
-- `audit_log` — append-only intent history with full trace_id, plan_hash, outcome
-- `schema_snapshots` — physical schema crawled from each source, time-versioned
-- `materialized_recommendations` — output of the async copilot, awaiting human review
+Every persistent store the system writes to — control plane, operational plane, and tenant data — obeys the same five invariants:
 
-### Hot-path strategy
+1. **UUIDv7 primary keys.** RFC 9562 v7, time-ordered. Stored as `UUID` natively (Postgres) or `BINARY(16)` (MySQL). Bound to `uuid::Uuid` in Rust with no string coercion (§14).
+2. **INSERT-only writes.** No `UPDATE`, no `DELETE`, no `UPSERT`. The application service account's grants make this engine-enforced (§13). State changes are new rows.
+3. **SCD Type 2 triad on every state-bearing table.** Columns `valid_from TIMESTAMPTZ NOT NULL`, `valid_to TIMESTAMPTZ NOT NULL DEFAULT 'infinity'`, `is_current BOOLEAN NOT NULL DEFAULT true`. All three set at insert and **never mutated** (§10/§14).
+4. **Time-travel by query, not by mutation.** "Current" is `ORDER BY valid_from DESC LIMIT 1` per chain key. "As of timestamp T" is `WHERE valid_from <= T AND (valid_to IS NULL OR valid_to > T)`. The historical `valid_to` for any version is computed via `LEAD(valid_from) OVER (...)`.
+5. **Broken-down columns. `JSONB` only for opaque blobs.** Every named attribute is a typed column. Typed FKs everywhere. `CHECK` constraints on every status / enum column. `JSONB` is reserved for genuinely opaque payloads (archived raw intents for replay, connector-specific event tails). Never a "metadata" catch-all.
+
+### 5.2 Two logical schemas
+
+The control-plane Postgres database holds **two schemas** with deliberately different grant axes, retention, and access patterns:
+
+| Schema | Purpose | Size | `eh_service` grant | `eh_admin` grant | Backup priority |
+|---|---|---|---|---|---|
+| `eh_control` | Config: agents, sources, entities, bindings, rules, policies | small, slow-changing | **`SELECT`** only | full | high — source of truth |
+| `eh_operational` | Events: audit log, telemetry, health, drift, cost, proposals | large, append-only | **`SELECT` + `INSERT`** only | full | rebuildable from Kafka mirror |
+
+Splitting these gives precise grant axes (the application **cannot** mutate config; it **can** insert events), separable retention (`eh_control` retains forever; `eh_operational` is TTL'd or archived), and separable performance characteristics.
+
+### 5.3 ProxySQL-inspired organization (with our modifications)
+
+EventHorizon's schema borrows ProxySQL's "config in DB, queryable via SQL, one table per concept, `CHECK`-constrained" pattern, with these modifications:
+
+- **No `LOAD ... TO RUNTIME` / `SAVE ... TO DISK` two-stage commit.** We use Postgres `LISTEN/NOTIFY` + `ArcSwap` for atomic apply with sub-second propagation. Write → notify → pods swap. No explicit "load to runtime" step.
+- **Strict types, not loose `VARCHAR`.** Postgres native typing throughout (`UUID`, `TIMESTAMPTZ`, typed enums via `CHECK`).
+- **UUIDv7 PKs**, not auto-increment.
+- **SCD Type 2 on every table** (insert-only), instead of in-place updates.
+- **`runtime_*` mirror tables** (optional, debugging-only): a snapshot of what each pod has loaded into its `ArcSwap` cache, refreshed periodically — useful for diffing "configured vs running."
+
+The result: operators familiar with ProxySQL (or any SQL store) can `psql` the control plane and run `SELECT * FROM eh_control.sources;` to inspect state. Writes go through the typed admin REST API by default for validation and audit; admin SQL works as a break-glass tool when the operator has the admin role.
+
+### 5.4 What `eh_control` holds
+
+- `agents` — identity (name, owner, tenant, status)
+- `agent_secrets` — token hashes, kept in a separate table for grant isolation
+- `capabilities` — `(agent_id, entity_id, action)` grants, optionally conditioned
+- `policies` — Cedar policy text, version-tagged
+- `sources` — registered backends, kind-agnostic columns
+- `source_credentials` — references to a secrets manager (Vault, k8s Secret, AWS SM) — **values never stored here**
+- `source_<kind>` — per-connector-kind typed config table (`source_mysql`, `source_postgres`, `source_iceberg`, …); FK 1:1 to `sources`. **This is the ProxySQL `mysql_servers` vs `pgsql_servers` pattern.**
+- `entities`, `entity_fields` — semantic schema (one row per field, typed, with PII tag)
+- `entity_bindings` — entity → source mapping with field map and profile
+- `routing_rules` — declarative routes, evaluated in priority order
+- `predicate_nodes` — AST representation of routing predicates (see §5.7)
+
+### 5.5 What `eh_operational` holds
+
+- `audit_log` — per-intent durable record: trace_id, agent_id, entity_id, source_id, plan_hash, decision, outcome, latency_ms, ts
+- `telemetry_events` — typed event stream (see §10), the canonical source of truth before Kafka emission
+- `source_health` — append-only health snapshots
+- `schema_snapshots` — physical schemas crawled from each source for drift detection (Phase 11)
+- `cost_records` — per-intent cost ledger (bytes scanned, est vs actual, cost cents)
+- `proposals` — async copilot output awaiting operator review (Phase 13)
+
+### 5.6 Connector-kind extensibility
+
+New connector kinds extend the system without touching core tables:
+
+- Connector author defines `source_<kind>` table with kind-specific typed columns.
+- Migration is owner-authored, operator-applied per §11.
+- Connector registry registers the table at startup; the admin API exposes typed CRUD over it.
+- **Zero JSON** for kind-specific config. Each connector owns its typed table.
+
+Example for MySQL:
+
+```sql
+CREATE TABLE eh_control.source_mysql (
+  source_id            UUID PRIMARY KEY REFERENCES eh_control.sources(id),
+  host                 TEXT NOT NULL,
+  port                 INT  NOT NULL CHECK (port BETWEEN 1 AND 65535),
+  database_name        TEXT NOT NULL,
+  username_secret_ref  TEXT NOT NULL,   -- e.g. "vault://eh/mysql/prod/user"
+  password_secret_ref  TEXT NOT NULL,
+  ssl_mode             TEXT NOT NULL CHECK (ssl_mode IN ('disabled','preferred','required','verify_ca','verify_identity')),
+  max_pool_size        INT  NOT NULL DEFAULT 8 CHECK (max_pool_size > 0),
+  valid_from           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  valid_to             TIMESTAMPTZ NOT NULL DEFAULT 'infinity',
+  is_current           BOOLEAN     NOT NULL DEFAULT true
+);
+```
+
+### 5.7 Routing predicate AST
+
+Routing rule conditions are modeled as a typed AST tree, not as a regex string and not as a JSONB blob:
+
+- `predicate_nodes(id, rule_id, parent_id, position, node_kind, left_key, operator, value_type, value_text, …)`.
+- `node_kind IN ('and','or','not','compare','in','matches')`.
+- Inner nodes (`and`/`or`/`not`) have children referenced by `parent_id`; leaves (`compare`/`in`/`matches`) carry `left_key`, `operator`, and typed value.
+- `CHECK` constraints enforce that inner nodes have no leaf attributes and leaves have no children, etc.
+- The router compiles the AST tree once at config load; hot-path evaluation walks the in-memory tree.
+
+This gives full boolean expression power (`(action=read AND mode=trend) OR (action=read AND window>30d)`) while remaining typed, indexable, and SQL-readable.
+
+### 5.8 Multi-tenancy — database-per-tenant
+
+For multi-tenant deployments, tenant isolation is at the **physical database level**, not row-level:
+
+- Each tenant has its own dedicated database (or set of databases) for their data sources.
+- The proxy maintains a per-tenant connection pool keyed by `agent.tenant_id`.
+- An agent's `tenant_id` (from its identity) determines which database its intents route to — there is no cross-tenant query path.
+- **RLS layered on top within each tenant's DB** as defense-in-depth.
+- Tenant DBs follow the same universal discipline (§5.1): UUIDv7 + INSERT-only + SCD Type 2 + time-travel.
+- Phase 1 (FVP) is single-tenant; multi-tenant routing lands in Phase 6 alongside the Postgres control plane.
+
+### 5.9 Hot-path strategy
 
 - Every pod holds an in-process `Arc<ArcSwap<CompiledConfig>>` containing:
-  - routing rules (compiled to fast lookup form)
+  - routing rules (compiled to a fast lookup form, AST pre-walked)
   - capability map per agent
   - entity schemas
-  - source registry with health/circuit state
+  - source registry with health / circuit state
 - Refresh is push-based via Postgres `LISTEN/NOTIFY`, with a 60-second periodic full-reload safety net.
 - Hot-path lookup is nanoseconds; no network call per intent.
 
-### Why not SurrealDB / a graph DB?
+### 5.10 Account & grant model
 
-The data is not graph-shaped. The hot-path query is a single indexed point lookup or 2-table join. Postgres + `ArcSwap` cache wins on durability, ops familiarity, managed-cloud availability, and replication maturity. If multi-hop authorization ever becomes needed, the right answer is **OpenFGA / SpiceDB** (Zanzibar-style), not a generalist multi-model DB.
+- **`eh_admin`** — operator-only. Holds DDL, `GRANT`, `REVOKE`, all migration authority. Application **never** authenticates as this role (§13).
+- **`eh_service`** — the application. Grants:
+  - `SELECT` on every table in `eh_control`.
+  - `SELECT` + `INSERT` on every table in `eh_operational`.
+  - No `UPDATE`, no `DELETE`, no DDL — engine-refused.
+- Per-tenant data DBs get a parallel pair: `eh_admin_<tenant>` and `eh_service_<tenant>`.
+
+### 5.11 Why not SurrealDB / a graph DB?
+
+We don't need a graph database; we need a graph *index* over relational tables. Postgres gives us both: typed per-kind tables for the data, plus a generic `entity_relationships` table (§5.13) for graph traversal queries. Postgres + `ArcSwap` cache wins on durability, ops familiarity, managed-cloud availability, and replication maturity. If multi-hop authorization ever becomes needed, the right answer is **OpenFGA / SpiceDB** (Zanzibar-style), not a generalist multi-model DB.
+
+### 5.12 Entity as a universal primitive
+
+"Entity" is not just an agent-facing concept — it is **the universal modeling primitive** that covers both planes:
+
+| Plane | Examples |
+| --- | --- |
+| Agent-facing (data plane) | `Customer`, `Order`, `Invoice` — what agents query through intents |
+| Control plane (operator-facing) | `Source`, `Binding`, `Agent`, `Policy`, `Connector`, `RoutingRule` — the system's own configuration objects |
+
+Every entity has:
+
+- A **kind** (`customer`, `source`, `policy`, …) — typed, CHECK-constrained.
+- An **id** — UUIDv7.
+- A **type-specific row** in its kind's typed table (`source_mysql`, `entity_fields`, `policies`, …).
+- Optional **sub-entities** (child rows in related tables) — e.g., an `entity` has many `entity_fields`.
+- Optional **relationships** to other entities of any kind — recorded in `entity_relationships` (§5.13).
+
+The payoff: the admin surface doesn't need its own bespoke protocol. Admin operations are *intents over control-plane entities* (`{action: read, entity: Source}`, `{action: read, entity: Capability, filter: {agent_id: …}}`), with a separate `control:*` capability namespace. **One protocol; two namespaces.** This is the architectural unification §3 of this document calls out ("the control plane is itself a logical data source") — operationalized.
+
+### 5.13 Entity relationships — the explicit graph
+
+The FKs between tables already form a graph. The `entity_relationships` table makes that graph **first-class and traversable**, without dissolving per-kind type safety:
+
+```sql
+CREATE TABLE eh_control.entity_relationships (
+  id              UUID PRIMARY KEY,                -- UUIDv7
+  from_id         UUID NOT NULL,
+  from_kind       TEXT NOT NULL CHECK (from_kind IN
+                    ('agent','source','entity','binding','policy','capability','rule','connector')),
+  to_id           UUID NOT NULL,
+  to_kind         TEXT NOT NULL CHECK (to_kind   IN
+                    ('agent','source','entity','binding','policy','capability','rule','connector')),
+  relation_kind   TEXT NOT NULL CHECK (relation_kind IN
+                    ('depends_on','routes_to','owns','extends','authorizes','derives_from','observes')),
+  attrs           JSONB,                            -- narrow, relation-specific tail only
+  valid_from      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  valid_to        TIMESTAMPTZ NOT NULL DEFAULT 'infinity',
+  is_current      BOOLEAN     NOT NULL DEFAULT true
+);
+CREATE INDEX ON eh_control.entity_relationships (from_id, relation_kind);
+CREATE INDEX ON eh_control.entity_relationships (to_id, relation_kind);
+```
+
+What this gives:
+
+- **Generic traversal queries** alongside typed lookups. *"What does agent X depend on?"* or *"What's downstream of source Y if Y goes down?"* becomes one SQL query (or a recursive CTE for multi-hop).
+- **Per-kind typed tables remain the source of truth for entity data.** The relationships table is an *index of edges*, not a replacement for typed columns.
+- **New relation kinds = operator-approved migration** (extends the `CHECK` enum), not a JSON-blob hack.
+- **The router pre-walks this graph** at config load — `CompiledConfig` in each pod's `ArcSwap` is a pre-walked adjacency map of capability + binding + routing edges.
+
+The result: agents (and admin agents) effectively *traverse the graph* when executing intents. The kernel computes the path; the answer is a pre-resolved tuple of `(source, binding, plan)`. Visible, queryable, and typed.
 
 ---
 
@@ -488,11 +643,64 @@ Each stage is reversible; rollback is supported at every step.
 - **Snowflake / SQL Server** target ADBC + Arrow as the long-term substrate.
 - WASM / dynamic loading: **deferred** to V3 unless community demand emerges. Compile-time plugins are the V1 model.
 
+### Beyond SQL — RAG, models, files, anything that returns rows
+
+The `Connector` trait is intentionally broader than "SQL database." Anything that can return tabular data is a valid connector. Three forward-looking examples:
+
+| Connector kind | `bind_entity` returns a `TableProvider` whose scan yields… | Example intent |
+|---|---|---|
+| **RAG** (`eh-connector-rag`) | Top-k passages from a vector store, with columns `(doc_id, passage_text, score, metadata_kind)` | `{action: read, entity: KnowledgeBase, mode: similarity, query: "…", k: 8}` |
+| **Model** (`eh-connector-model`) | A row per inference call with columns `(prompt, response, tokens_in, tokens_out, latency_ms, model_id)` | `{action: read, entity: ChatCompletion, prompt: "…", model: "claude-opus-4-7"}` |
+| **Files** (`eh-connector-files`) | Rows over a directory of Parquet / CSV / JSON files | `{action: read, entity: ServerLog, filter: {host: "edge-3"}}` |
+
+The kernel doesn't know or care which kind a connector is — the trait is the contract. Routing rules send `mode: similarity` to RAG; the `eh_control.source_rag` table holds vector-store URI and embedding model; everything else is the same pipeline.
+
+This is the open-closed property the kernel is built for: **closed for modification** (no new code in `eh-core` / `eh-compiler` / `eh-router` for a new connector kind), **open for extension** (new connector = new crate + new `source_<kind>` table + register in binary). The architecture is designed for connector kinds that don't yet exist.
+
 ---
 
 ## 10. Telemetry, Observability, Kafka Emission
 
 "You can't improve what you can't see." Telemetry is the spine, not an afterthought.
+
+### 10.0 Telemetry tiers
+
+Telemetry ships in two tiers, deliberately staged so the FVP has observability from day one.
+
+| Tier | Lands in | Provides | Sinks |
+|---|---|---|---|
+| **Tier 1 — Observe** | **Phase 1 (FVP)** | Per-intent `tracing` spans (receive → route → authz → compile → execute → respond), structured JSON logs to stdout, Prometheus `/metrics` endpoint | OTLP export (env-configurable), Prometheus scrape, stdout |
+| **Tier 2 — Audit & Federate** | Phase 8 | Typed `TelemetryEvent` enum + event bus + `Sink` trait, durable per-intent audit row, fire-and-forget Kafka emission with schema-registry-compatible payloads | adds `eh-sink-pg-audit`, `eh-sink-kafka`, optional `eh-sink-s3-audit` |
+
+Tier 1 is enough to **see the FVP working**: latency histograms, success/error counts, per-intent trace trees in Grafana Tempo. Tier 2 adds durable audit (transactional per-intent record) and downstream emission for analytics/billing.
+
+### 10.1 Unified telemetry stream — one schema, dimensioned
+
+EventHorizon emits a **single canonical event stream**, not per-connector telemetry schemas. Every event from every component lands in the same `eh_operational.telemetry_events` table with the same typed core dimensions:
+
+| Dimension | Why typed |
+|---|---|
+| `ts` (timestamptz) | partitioning + time-range queries |
+| `trace_id` (uuidv7) | span tree correlation |
+| `agent_id` (uuid FK) | per-agent slicing |
+| `tenant_id` (uuid) | per-tenant slicing + RLS |
+| `source_id` (uuid FK, nullable) | per-source slicing |
+| `connector_kind` (text, CHECK enum) | per-connector aggregation without joining |
+| `entity_id` (uuid FK, nullable) | per-entity slicing |
+| `action` (text, CHECK enum) | read / append / update / delete |
+| `event_kind` (text, CHECK enum) | intent_received / plan_compiled / executed / rejected / source_health / drift / … |
+| `status` (text, CHECK enum) | ok / denied / over_budget / circuit_open / error |
+| `latency_ms` (int) | histograms |
+| `est_bytes`, `actual_bytes` (bigint) | cost dashboards |
+| `tail` (jsonb, narrow, optional) | connector-specific extras only — never queried by core code |
+
+**Implications of "unified + dimensioned":**
+
+1. **Per-agent breakdown is a query**, not a separate schema: `WHERE agent_id = $1`.
+2. **Per-connector breakdown is a query**: `WHERE connector_kind = 'iceberg'` or `WHERE source_id = $1`.
+3. **Cross-cutting rollups are a query**: `GROUP BY connector_kind, action, status`.
+4. **Volume is operations, not schema** — time-partition `telemetry_events` (monthly), BRIN on `ts`, archive cold partitions to S3, Kafka mirror downstream handles retention.
+5. **No connector-specific telemetry table proliferation** — connectors that need extra fields emit into the same row with `event_kind = '<kind>_specific_event'` plus a narrow `tail` JSONB.
 
 ### Typed event stream
 
@@ -834,93 +1042,144 @@ The plan follows a **walking-skeleton** strategy: **Phase 1 delivers the First V
 | Gate | What must be true |
 | --- | --- |
 | **Mandate-5 (every PR)** | `cargo fmt --check` clean · `cargo clippy --all-targets --all-features -- -D warnings` clean · `cargo test --workspace` green |
-| **🎯 FVP Gate (end of Phase 1)** | `docker compose up` brings gateway + MySQL online; `eh ctl intent send` and `curl POST /v1/intent` both return typed JSON artifacts from MySQL |
-| **V0.1 Gate (end of Phase 3)** | FVP + MCP edge + MySQL connector passes Conformance §1–§3 |
-| **V0.2 Gate (end of Phase 9)** | Federated `Customer` entity (MySQL + Postgres + Iceberg) with Cedar authz, telemetry, cost gating |
-| **V1.0 Gate (end of Phase 11)** | Helm-installable, drift-detecting, REST+MCP-edged, semver-stable connector API published |
+| **🎯 FVP Gate (end of Phase 1, ≈ Week 4)** | `docker compose up` brings gateway + MySQL online; `eh ctl intent send` and `curl POST /v1/intent` both return typed JSON artifacts from MySQL; **Tier-1 telemetry visible** in stdout JSON logs + Prometheus `/metrics` |
+| **V0.1 Gate (end of Phase 3, ≈ Week 7)** | FVP + MCP edge + Tempo/Grafana overlay + MySQL connector passes Conformance §1–§3 |
+| **V0.2 Gate (end of Phase 9, ≈ Week 15)** | Federated `Customer` entity (MySQL + Postgres + Iceberg) with Cedar authz, **Tier-2 telemetry (durable audit + Kafka)**, cost gating |
+| **V1.0 Gate (end of Phase 11, ≈ Week 18)** | Helm-installable, drift-detecting, REST+MCP-edged, semver-stable connector API published |
 
 ### Phase index
 
 | # | Name | Milestone | Window | Depends on |
 | --- | --- | --- | --- | --- |
-| 0  | Bootstrap (workspace + CI + Docker)                            | pre-V0.1 | Week 1      | —  |
-| 1  | **Walking Skeleton FVP** (MySQL + REST + CLI + compose)        | V0.1     | Weeks 2–3   | 0  |
-| 2  | `eh-edge-mcp`                                                  | V0.1     | Week 4      | 1  |
-| 3  | Conformance suite + MySQL §1–§3                                | V0.1     | Week 5      | 2  |
-| 4  | `eh-connector-postgres`                                        | V0.2     | Weeks 5–6   | 3  |
-| 5  | `eh-policy` (Cedar) + identity passthrough                     | V0.2     | Weeks 6–7   | 4  |
-| 6  | `eh-control-pg` (replaces YAML for live config)                | V0.2     | Weeks 7–9   | 5  |
-| 7  | `eh-connector-iceberg`                                         | V0.2     | Weeks 9–11  | 6  |
-| 8  | `eh-telemetry` + OTel + audit sinks                            | V0.2     | Weeks 11–12 | 7  |
-| 9  | `eh-cost`                                                      | V0.2     | Weeks 12–13 | 8  |
-| 10 | Connector lifecycle + `eh ctl` expansion                       | V0.3     | Weeks 13–15 | 9  |
-| 11 | Drift detector + Helm + dashboards + V1.0 release              | V1.0     | Weeks 15–16 | 10 |
-| 12 | V1.1 expansion (gRPC, UI, TF, Kafka, Snowflake/MSSQL)          | V1.1     | Weeks 16–24 | 11 |
+| 0  | **Bootstrap + Schema Design** (workspace + CI + Docker + SCHEMA.md + HTML schema doc + MySQL init scripts) | pre-V0.1 | Weeks 1–2   | —  |
+| 1  | **Walking Skeleton FVP** (MySQL + REST + CLI + compose + Tier-1 telemetry — trimmed) 🎯 | V0.1     | Weeks 3–4   | 0  |
+| 2  | `eh-edge-mcp` + FVP polish (OTLP + Tempo overlay + SIGHUP + discovery + ctl helpers) | V0.1     | Weeks 5–6   | 1  |
+| 3  | Conformance suite + MySQL §1–§3                                | V0.1     | Week 7      | 2  |
+| 4  | `eh-connector-postgres`                                        | V0.2     | Weeks 7–8   | 3  |
+| 5  | `eh-policy` (Cedar) + identity passthrough                     | V0.2     | Weeks 8–9   | 4  |
+| 6  | `eh-control-pg` (replaces YAML for live config)                | V0.2     | Weeks 9–11  | 5  |
+| 7  | `eh-connector-iceberg`                                         | V0.2     | Weeks 11–13 | 6  |
+| 8  | **Tier-2 telemetry**: typed event bus + PG audit + Kafka       | V0.2     | Weeks 13–14 | 7  |
+| 9  | `eh-cost`                                                      | V0.2     | Weeks 14–15 | 8  |
+| 10 | Connector lifecycle + `eh ctl` expansion                       | V0.3     | Weeks 15–17 | 9  |
+| 11 | Drift detector + Helm + dashboards + V1.0 release              | V1.0     | Weeks 17–18 | 10 |
+| 12 | V1.1 expansion (gRPC, UI, TF, Snowflake/MSSQL)                 | V1.1     | Weeks 18–26 | 11 |
 | 13 | V2.0 async copilot + artifact cache + recommendations          | V2.0     | TBD         | 12 |
 
 ---
 
-### Phase 0 — Bootstrap *(pre-V0.1, Week 1)*
+### Phase 0 — Bootstrap + Schema Design *(pre-V0.1, Weeks 1–2)*
 
-**Goal.** Workspace, CI gates, container build, and `docker compose` topology — all in place with a no-op binary.
+**Goal.** Workspace, CI gates, container build, `docker compose` topology — and the schema design that everything else stands on. **Schema-first per §11**: the schema document is authored and operator-approved *before* any code in Phase 1 touches a table.
 
 **Deliverables**
+
+*Workspace / CI / container*
 - Cargo workspace with empty crate stubs per [Appendix A](#appendix-a--crate-layout).
 - CI: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --workspace`.
 - Pre-commit hooks (same gates).
-- **Multi-stage Dockerfile** (Rust build → minimal distroless or alpine runtime).
-- **`docker-compose.yml`** with two services: `eventhorizon` (built from Dockerfile) + `mysql` (official MySQL 8.0 image) on a bridged network, volumes, env-injected credentials.
+- Multi-stage Dockerfile (Rust build → minimal distroless or alpine runtime).
+- `docker-compose.yml` with two services: `eventhorizon` (built from Dockerfile) + `mysql` (MySQL 8.0).
 - `examples/config/eventhorizon.yaml` (empty schema, validated).
 - `LICENSE` (Apache-2.0), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`.
 - `/docs/` directory; `README.md` links to this document.
 - Branch protection on `main` (require PR, require CI green).
 
-**Acceptance.** `docker compose build` succeeds. `docker compose up` brings both services up. The no-op binary serves `GET /healthz` returning 200. `cargo test --workspace` green on a fresh clone. Branch protection rejects direct pushes to `main`.
+*Schema-first*
+- `SCHEMA.md` (the design document) covering:
+  - Universal discipline per §5.1 (UUIDv7, INSERT-only, SCD Type 2 triad, time-travel, broken-down columns).
+  - Two-schema split: `eh_control` + `eh_operational`.
+  - Account & grant model (`eh_admin`, `eh_service`).
+  - Per-kind connector table pattern (with worked `source_mysql` example).
+  - Routing predicate AST model.
+  - Database-per-tenant model (single-tenant for FVP, multi-tenant routing later).
+- `schema.html` — client-side renderer sibling to `index.html`, browser-friendly.
+- MySQL init script (`examples/compose/mysql-init.sql`):
+  - Creates the data-source `customers` table seeded with 10 rows (UUIDv7 PKs, SCD Type 2 triad).
+  - Creates `eh_admin` (full grants on data DB) + `eh_service` (SELECT-only for FVP) users.
+
+**Acceptance.**
+- `docker compose build` succeeds.
+- `docker compose up` brings both services up; no-op binary serves `GET /healthz` → 200.
+- `cargo test --workspace` green on a fresh clone.
+- Branch protection rejects direct pushes to `main`.
+- `SCHEMA.md` reviewed and approved by operator; `schema.html` renders cleanly via GitHub Pages.
+- MySQL container starts with `eh_admin` + `eh_service` users created and the seeded `customers` table queryable as `eh_service`.
 
 ---
 
-### Phase 1 — Walking Skeleton FVP 🎯 *(V0.1, Weeks 2–3)*
+### Phase 1 — Walking Skeleton FVP + Tier-1 Telemetry 🎯 *(V0.1, Weeks 3–4)*
 
-**Goal.** End-to-end thin slice. A deployable container that reads a parameterized YAML config, connects to MySQL via a real connector, accepts intents over REST and CLI, and returns JSON artifacts. **This is the First Viable Product.**
+**Goal.** End-to-end thin slice with day-one observability. A deployable container that reads a parameterized YAML config, connects to MySQL via a real connector, accepts intents over REST and CLI, returns JSON artifacts, and emits Tier-1 telemetry (tracing spans to stdout + Prometheus metrics). **This is the First Viable Product.** Scope is deliberately the minimum that exercises every architectural layer end-to-end; polish (OTLP, Tempo/Grafana overlay, SIGHUP hot-reload, discovery endpoints, CLI convenience commands) lands in Phase 2.
 
-**Deliverables (intentionally minimal — each layer thin but real)**
-- `eh-core`: `Intent`, `Entity`, `Binding`, `Artifact`, `CallerContext`, `Action`, `Mode` — just enough for read intents.
+**Deliverables (every layer represented, intentionally minimal)**
+
+*Core slice*
+- `eh-core`: `Intent`, `Entity`, `Binding`, `Artifact`, `CallerContext`, `Action`, `Mode` — just enough for read intents. UUIDv7 types throughout (`uuid::Uuid`, no string coercion per §14).
 - `eh-protocol`: JSON Schema for `Intent` + REST contract.
-- `eh-config`: YAML loader for sources, entities, bindings, and a minimal routing table. Validated against schema; hot-reloadable on SIGHUP. Secrets via env-var references only (`${ENV:MYSQL_PASSWORD}`).
-- `eh-connector-api`: trait + DataFusion `TableProvider` re-export (minimal surface).
-- `eh-connector-mysql`: **read-only**, parameterized statements via `sqlx::MySql`, exposes a DataFusion `TableProvider`. No writes yet.
+- `eh-config`: YAML loader for sources, entities, bindings, routing. Validated against schema; **load once at startup** (SIGHUP hot-reload arrives in Phase 2). Secrets via env-var references only (`${ENV:MYSQL_PASSWORD}`).
+- `eh-connector-api`: trait + DataFusion `TableProvider` re-export (minimal surface). Trait is intentionally broader than "SQL database" per §9 — RAG / model / file connectors fit the same trait.
+- `eh-connector-mysql`: **read-only**, parameterized `sqlx::MySql` statements, exposes a DataFusion `TableProvider`. Authenticates as `eh_service` (SELECT-only grant per §13). UUIDv7 bound directly to `BINARY(16)` columns — no `UUID_TO_BIN` shim (§14).
 - `eh-compiler`: DataFusion-backed compilation of Intent → `LogicalPlan` (projection + filter only).
 - `eh-router`: trivial map lookup against the loaded YAML.
-- `eh-edge-rest`: `POST /v1/intent`, `GET /v1/entities`, `GET /healthz`.
-- `eh-ctl` CLI: `eh ctl start`, `eh ctl config validate <file>`, `eh ctl intent send <file-or-stdin>`, `eh ctl health`.
+- `eh-edge-rest`: **`POST /v1/intent`** + **`GET /healthz`** only. (Discovery endpoint `GET /v1/entities` lands in Phase 2.)
+- `eh-ctl` CLI: **`eh ctl start`** + **`eh ctl intent send <file-or-stdin>`** only. (`config validate` and `health` lands in Phase 2.)
 - `eh-bin`: wires it all together; reads `eventhorizon.yaml` from `--config` flag or `EH_CONFIG` env var.
-- `examples/compose/`: docker-compose with MySQL 8.0 pre-seeded via init script (`customers` table + 10 rows).
+
+*Tier-1 telemetry (in FVP)*
+- `eh-telemetry`: minimal Tier 1 per §10.0:
+  - `tracing` spans for the intent lifecycle (receive → route → authz → compile → execute → respond).
+  - Structured JSON logs to stdout (`tracing-subscriber` with `fmt::json`) — every span event is visible in `docker compose logs`.
+  - Prometheus `/metrics` endpoint via `axum-prometheus` — latency histograms (`eh_intent_latency_ms`), intent counts, error rates.
+  - Defines the `TelemetryEvent` enum shape (so Phase 2 / Phase 8 sinks can subscribe without refactor).
+  - **OTLP export deferred to Phase 2.** Tempo/Grafana overlay also deferred to Phase 2.
+
+*Compose*
+- `examples/compose/`: docker-compose with MySQL 8.0 pre-seeded via init script (`customers` table, UUIDv7 PKs, SCD Type 2 columns, 10 rows). MySQL `eh_service` user with SELECT-only grant.
 - `examples/intents/`: sample intent JSON files for `Customer.read`.
-- `make smoke` (or `just smoke`): brings stack up, sends a sample intent, asserts shape of response.
+- `make smoke` (or `just smoke`): brings stack up, sends a sample intent, asserts shape of response, asserts the latency histogram populated in Prometheus.
 
 **Depends on.** Phase 0.
-**Acceptance (the FVP gate)**
+
+**Acceptance (the FVP gate, ≈ end of Week 4)**
 1. `docker compose up` succeeds.
 2. `eh ctl intent send examples/intents/customer-point-read.json` returns a typed JSON artifact from MySQL.
 3. `curl -X POST http://localhost:8080/v1/intent -d @examples/intents/customer-point-read.json` returns the same.
-4. Edit `eventhorizon.yaml`, send `SIGHUP` to the gateway, new binding takes effect without restart.
-5. `cargo test --workspace` green; `cargo clippy --all-targets --all-features -- -D warnings` clean.
+4. `docker compose logs eventhorizon` shows structured JSON span lifecycle (receive → route → compile → execute → respond) per intent.
+5. `curl http://localhost:8080/metrics | grep eh_intent_latency_ms` shows a populated histogram.
+6. `cargo test --workspace` green; `cargo clippy --all-targets --all-features -- -D warnings` clean.
 
-> **🎯 FVP Gate — End of Phase 1 (≈ Week 3).** You can run it. You can test it. Every subsequent phase thickens this skeleton; nothing accumulates untested.
+> **🎯 FVP Gate — End of Phase 1 (≈ Week 4).** You can run it. You can test it. You can **see** it via stdout JSON + Prometheus scrape. Polish (OTLP/Tempo/SIGHUP/discovery/CLI conveniences) lands in Phase 2. Every subsequent phase thickens this skeleton; nothing accumulates untested.
 
 ---
 
-### Phase 2 — `eh-edge-mcp` *(V0.1, Week 4)*
+### Phase 2 — `eh-edge-mcp` + FVP polish *(V0.1, Weeks 5–6)*
 
-**Goal.** Add the MCP edge alongside REST — the agent-facing protocol promised in §6.
+**Goal.** Add the MCP edge (the agent-facing protocol promised in §6) and the polish items deferred from the trimmed FVP — observability overlay, hot-reload, discovery endpoint, CLI convenience commands.
 
 **Deliverables**
+
+*MCP edge*
 - `eh-edge-mcp`: per-entity MCP tools auto-generated from the entity schema.
 - Same pipeline as REST; just a different edge.
 - Sample Claude Desktop config in `examples/`.
 
+*FVP polish (deferred from Phase 1)*
+- OTLP export via `opentelemetry-otlp` (enabled when `OTLP_ENDPOINT` env var is set).
+- `examples/observability/` docker-compose overlay adding Tempo + Prometheus + Grafana with pre-loaded dashboards.
+- SIGHUP hot-reload of `eventhorizon.yaml` — config changes without restart.
+- `GET /v1/entities` discovery endpoint on REST.
+- `eh ctl config validate <file>` — schema-validates the YAML offline.
+- `eh ctl health` — convenience wrapper over `GET /healthz`.
+
 **Depends on.** Phase 1.
-**Acceptance.** Claude Desktop (or any MCP client) connects, discovers `customer.read`, calls it, gets the artifact. Same intent works via REST and MCP indistinguishably.
+
+**Acceptance.**
+- Claude Desktop (or any MCP client) connects, discovers `customer.read`, calls it, gets the artifact. Same intent works via REST and MCP indistinguishably.
+- `docker compose -f docker-compose.yml -f examples/observability/docker-compose.yml up` brings Tempo + Prom + Grafana online; an intent trace appears in Tempo within ~1 s of being issued.
+- Edit `eventhorizon.yaml`, `kill -HUP $PID`, new binding takes effect without restart (verifiable via a `eh ctl intent send` against the new binding).
+- `GET /v1/entities` returns the configured entity surface.
+- `eh ctl config validate examples/config/eventhorizon.yaml` exits 0 on a good file, non-zero on a bad one with a structured error.
 
 ---
 
