@@ -73,6 +73,14 @@ jobs:
       - name: Apply schema.sql to fresh Postgres, assert eh_service is constrained
         run: bash scripts/verify-control-plane-lockdown.sh
 
+  no-admin-creds:
+    name: no admin credentials in application code (zero-trust §13)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: crates/ must not reference admin/root credentials
+        run: bash scripts/check-no-admin-creds.sh
+
   # ==========================================================================
   # Container build smoke test
   # ==========================================================================
