@@ -42,6 +42,12 @@ tower = "0.5"
 # Async traits
 async-trait = "0.1"
 
+# YAML config (eh-config)
+serde_yaml = "0.9"
+
+# In-memory config cache (ArcSwap<CompiledConfig> for hot-swap on reload)
+arc-swap = "1.7"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
