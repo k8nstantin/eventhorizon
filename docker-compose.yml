@@ -1,0 +1,73 @@
+# ============================================================================
+# EventHorizon — docker-compose for local development & FVP smoke test
+# ============================================================================
+# Brings up:
+#   * mysql:8.0           — Phase 1 FVP data source with init scripts
+#                            (db/mysql/init/01_fvp_schema.sql + 02_users.sh).
+#   * eventhorizon        — the gateway binary built from this repo.
+#
+# Secrets are injected from the operator's shell or a local .env file
+# (NOT committed). Required env vars:
+#
+#   MYSQL_ROOT_PASSWORD           — operator-owned, for entrypoint user creation
+#   MYSQL_EH_ADMIN_PASSWORD       — for eh_admin role (operator use only)
+#   MYSQL_EH_SERVICE_PASSWORD     — for eh_service role (the application's identity)
+#
+# Example local .env (gitignored):
+#   MYSQL_ROOT_PASSWORD=changeme_root
+#   MYSQL_EH_ADMIN_PASSWORD=changeme_admin
+#   MYSQL_EH_SERVICE_PASSWORD=changeme_service
+# ============================================================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: eh-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_EH_ADMIN_PASSWORD: ${MYSQL_EH_ADMIN_PASSWORD:?MYSQL_EH_ADMIN_PASSWORD is required}
+      MYSQL_EH_SERVICE_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD:?MYSQL_EH_SERVICE_PASSWORD is required}
+    ports:
+      - "3306:3306"
+    volumes:
+      - eh-mysql-data:/var/lib/mysql
+      - ./db/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - localhost
+        - -uroot
+        - --password=${MYSQL_ROOT_PASSWORD}
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  eventhorizon:
+    build:
+      context: .
+      target: runtime
+    image: eventhorizon:dev
+    container_name: eh-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      RUST_LOG: ${RUST_LOG:-info}
+      EH_PORT: "8080"
+      # Phase 1 reads these to connect to MySQL as eh_service (SELECT only).
+      EH_MYSQL_HOST: mysql
+      EH_MYSQL_PORT: "3306"
+      EH_MYSQL_DATABASE: eh_demo
+      EH_MYSQL_USER: eh_service
+      EH_MYSQL_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  eh-mysql-data:

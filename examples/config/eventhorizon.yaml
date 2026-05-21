@@ -1,0 +1,50 @@
+# ============================================================================
+# EventHorizon — example configuration (Phase 0 placeholder)
+# ============================================================================
+# This file is the FVP control plane in Phase 1 (the YAML-driven mode before
+# the Postgres control plane lands in Phase 6). The schema below shows the
+# intended shape; eh-config (Phase 1) is the loader.
+#
+# Secrets are NEVER values here. They are env-var references with the form
+# ${ENV:NAME} — the loader looks them up at startup and refuses to start if
+# any are missing. The values come from the operator's secrets manager.
+# ============================================================================
+
+version: 1
+
+sources:
+  # Phase 1 FVP target. Connects as eh_service (SELECT only on eh_demo.customers).
+  pg_mysql_demo:
+    kind: mysql
+    host: ${ENV:EH_MYSQL_HOST}
+    port: 3306
+    database: eh_demo
+    username: ${ENV:EH_MYSQL_USER}
+    password: ${ENV:EH_MYSQL_PASSWORD}
+    ssl_mode: preferred
+    max_pool_size: 8
+
+entities:
+  Customer:
+    fields:
+      - { name: id,         type: uuid,      nullable: false, pii: false }
+      - { name: name,       type: string,    nullable: false, pii: true }
+      - { name: email,      type: string,    nullable: false, pii: true }
+      - { name: signup_at,  type: timestamp, nullable: false, pii: false }
+      - { name: ltv_usd,    type: decimal,   nullable: false, pii: false }
+
+bindings:
+  - entity: Customer
+    source: pg_mysql_demo
+    physical_table: eh_demo.customers
+    profile: oltp
+    supported_actions: [read]
+    field_map:
+      id:        id
+      name:      name
+      email:     email
+      signup_at: signup_at
+      ltv_usd:   ltv_usd
+
+routing:
+  - { when: { entity: Customer, action: read }, target: pg_mysql_demo }

@@ -1,0 +1,11 @@
+[package]
+name = "eh-control-api"
+description = "EventHorizon: ControlPlane trait (agents, entities, bindings, rules) — backend-agnostic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

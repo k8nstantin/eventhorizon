@@ -11,10 +11,11 @@ Cargo.lock
 # macOS
 .DS_Store
 
-# Env
+# Env (real secrets — never committed)
 .env
 .env.local
 .env.*.local
+# .env.example IS committed (it's a template with placeholder values)
 
 # Gemini session artifacts (predates this repo)
 .gemini/

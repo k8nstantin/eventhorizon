@@ -1,0 +1,3 @@
+# Project-wide clippy configuration.
+# Lints themselves live in each crate's lib.rs / main.rs via #![deny(...)].
+msrv = "1.85.0"

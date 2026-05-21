@@ -1,0 +1,11 @@
+[package]
+name = "eh-telemetry"
+description = "EventHorizon: Typed TelemetryEvent enum + event bus + Sink trait + OTel integration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

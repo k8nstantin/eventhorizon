@@ -1,0 +1,11 @@
+[package]
+name = "eh-conformance"
+description = "EventHorizon: Property + integration test kit every connector must pass to earn the verified badge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]
