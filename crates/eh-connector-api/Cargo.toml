@@ -15,6 +15,10 @@ serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 thiserror.workspace = true
+# DataFusion is always-on in the EventHorizon architecture (the agent <->
+# database firewall). Every connector exposes a TableProvider; DF drives
+# the data path. See memory: eventhorizon_access_modes.md.
+datafusion.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

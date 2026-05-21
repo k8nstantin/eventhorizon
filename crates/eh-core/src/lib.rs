@@ -13,12 +13,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod access;
 mod artifact;
 mod caller_context;
 mod entity;
 mod errors;
 mod intent;
 
+pub use access::{BindingAccessMode, BindingAccessScope, SourceAccessScope};
 pub use artifact::{Artifact, ArtifactRow};
 pub use caller_context::CallerContext;
 pub use entity::{Entity, EntityBinding, EntityField, FieldMap, FieldType, Profile};

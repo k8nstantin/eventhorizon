@@ -1,10 +1,19 @@
 //! The `Connector` trait — the contract every backend implements.
 //!
-//! Two execution methods only: `execute_read` (SELECT-shaped) and
-//! `execute_append` (INSERT-shaped). There is no UPDATE / DELETE / DDL
-//! method, period. State changes are new rows under SCD2; destructive
-//! operations belong to the operator under their admin role, not to the
-//! application code path.
+//! ## Direction of travel: connector becomes DUMB
+//!
+//! EventHorizon's steady-state architecture (decided 2026-05-21) has
+//! DataFusion as the always-on agent <-> database firewall. The
+//! connector's job shrinks to: declare its kind + capabilities, expose
+//! a `TableProvider` for each binding. DataFusion does all parsing,
+//! validation, planning, optimization, federation, SQL generation —
+//! and calls into the `TableProvider` to actually fetch / write rows.
+//!
+//! The `execute_read` / `execute_append` methods are TRANSITIONAL —
+//! they exist for Phase 1.7 (Intent-only FVP). PR 1.8.5 reroutes
+//! dispatch through DataFusion; PR 1.8.7 deletes those methods.
+//! Connectors should NOT add new logic to them; new work goes into
+//! the `TableProvider` impl returned by `as_table_provider`.
 //!
 //! Whether a given binding exposes read / append is controlled by the
 //! YAML binding's `supported_actions` parameter (not by the connector
@@ -71,4 +80,12 @@ pub trait Connector: Send + Sync + 'static {
         intent: &Intent,
         ctx: &CallerContext,
     ) -> ConnectorResult<AppendOutcome>;
+
+    // NOTE (in-flight, 2026-05-21): the steady-state data path will be
+    // `build_catalog(scope) -> Arc<dyn CatalogProvider>` — a connector
+    // exposes a USER-CONFIGURABLE catalog (single table, allow-list,
+    // whole schema, whole database) to the always-on DataFusion
+    // SessionContext. The shape is being designed in PR 1.8.2; this
+    // trait will gain that method once the AccessScope type lands in
+    // eh-core. Connectors should expect this method to arrive next.
 }
