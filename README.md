@@ -9,8 +9,9 @@ EventHorizon exposes a single typed surface (MCP / REST / gRPC), routes intents 
 ## Documents
 
 - **[Architecture Specification](./eventhorizon_architecture.md)** — the load-bearing reference (§1–§19 + §20 phased plan + appendices).
+- **[Schema Reference](./SCHEMA.md)** — the design contract for every table (DRAFT; per-table operator approval required per zero-trust §11).
 - **[Roadmap](./ROADMAP.md)** — phase index with GitHub issue links.
-- **[Rendered HTML](https://k8nstantin.github.io/eventhorizon/)** — same architecture content, browser-friendly (served via GitHub Pages once enabled).
+- **Rendered HTML**: [architecture](https://k8nstantin.github.io/eventhorizon/) · [schema](https://k8nstantin.github.io/eventhorizon/schema.html) (served via GitHub Pages).
 
 ## First Viable Product (FVP)
 
