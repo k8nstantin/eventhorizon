@@ -1,0 +1,24 @@
+[package]
+name = "eh-engine-df"
+description = "EventHorizon DataFusion engine — the always-on agent <-> database firewall. Owns query parsing, validation, planning, optimization, federation, SQL generation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]
+eh-core = { path = "../eh-core" }
+eh-connector-api = { path = "../eh-connector-api" }
+datafusion.workspace = true
+sqlparser.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde_json.workspace = true

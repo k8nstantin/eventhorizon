@@ -52,6 +52,17 @@ arc-swap = "1.7"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.17", default-features = false }
 
+# DataFusion — the always-on agent <-> database firewall. Owns query
+# parsing, validation, planning, optimization, federation, SQL generation.
+# Connectors implement `datafusion::catalog::TableProvider`; DF calls down.
+# See memory: eventhorizon_access_modes.md.
+datafusion = { version = "53", default-features = false, features = [
+    "parquet",
+] }
+# DataFusion's parser, re-exported here so eh-config / eh-engine-df can
+# walk SQL ASTs without taking the full DF dep when they only need parsing.
+sqlparser = "0.55"
+
 # sqlx — MySQL driver for eh-connector-mysql.
 # Features pinned per the FVP needs: tokio runtime + rustls TLS,
 # native uuid (BINARY(16) bind), chrono (TIMESTAMP), rust_decimal (DECIMAL).
