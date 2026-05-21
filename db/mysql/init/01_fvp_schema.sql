@@ -50,31 +50,19 @@ CREATE TABLE IF NOT EXISTS customers (
 
 -- 2. Service accounts
 -- ----------------------------------------------------------------------------
--- The passwords below are PLACEHOLDERS. In docker-compose, the init script
--- runs with operator-supplied env vars; the real init script template uses
--- ${MYSQL_EH_ADMIN_PASSWORD} and ${MYSQL_EH_SERVICE_PASSWORD} substitutions
--- so that no real secret lands in source.
+-- User creation and grants are NOT here — they live in db/mysql/init/02_users.sh
+-- which runs after this file and uses env-injected secrets
+-- (MYSQL_EH_ADMIN_PASSWORD, MYSQL_EH_SERVICE_PASSWORD). The MySQL Docker
+-- entrypoint runs *.sql files literally — no env-var substitution — so
+-- placing CREATE USER + GRANT here would bake placeholder passwords into the
+-- image. Moving them to a shell script keeps secrets in the secrets-manager
+-- env-var injection layer.
+--
+-- The GRANT set is unchanged from the prior cut:
+--   * eh_admin: ALL PRIVILEGES on eh_demo.*
+--   * eh_service (Phase 1 FVP): SELECT only on eh_demo.customers
+--                               (NO INSERT, UPDATE, DELETE, DDL)
 -- ----------------------------------------------------------------------------
-
-CREATE USER IF NOT EXISTS 'eh_admin'@'%'
-  IDENTIFIED BY '__REPLACE_AT_INIT_eh_admin_password__';
-
-GRANT ALL PRIVILEGES ON eh_demo.* TO 'eh_admin'@'%';
-
-CREATE USER IF NOT EXISTS 'eh_service'@'%'
-  IDENTIFIED BY '__REPLACE_AT_INIT_eh_service_password__';
-
--- Phase 1 FVP: SELECT only on the demo table.
--- When the append/update path lands in a later phase, the operator extends
--- these grants per zero-trust §11 (per-change authorisation).
-GRANT SELECT ON eh_demo.customers TO 'eh_service'@'%';
-
--- Explicit denial check (MySQL's grant model is allow-list; absence is denial).
--- These are documented here so the contract is visible:
---   * eh_service has NO INSERT, NO UPDATE, NO DELETE, NO DDL on eh_demo.
---   * eh_service has NO privileges on any other schema.
-
-FLUSH PRIVILEGES;
 
 -- 3. Seeded test rows
 -- ----------------------------------------------------------------------------

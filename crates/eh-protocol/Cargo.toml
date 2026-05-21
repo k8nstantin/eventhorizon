@@ -1,0 +1,11 @@
+[package]
+name = "eh-protocol"
+description = "EventHorizon: Typed JSON schemas + OpenAPI + MCP tool descriptors for the agent surface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

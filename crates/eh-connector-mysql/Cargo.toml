@@ -1,0 +1,11 @@
+[package]
+name = "eh-connector-mysql"
+description = "EventHorizon: MySQL connector — read-only in FVP, sqlx-backed, UUIDv7 BINARY(16) native bind"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

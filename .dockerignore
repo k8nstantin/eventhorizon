@@ -1,0 +1,37 @@
+# Cargo build artifacts
+target/
+**/target/
+
+# Local config / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Local-only Claude session metadata
+.claude/settings.local.json
+
+# Docs / non-code
+*.md
+docs/
+examples/
+LICENSE
+.github/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Editor / scratch
+*.bak
+*.orig
+.env
+.env.local
+
+# Schema CI guardrail script — runs in CI, not in image
+scripts/
+
+# Schema files — applied by operator via compose init mount, not baked
+db/

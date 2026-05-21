@@ -1,0 +1,61 @@
+# ============================================================================
+# EventHorizon — example configuration (Phase 0 placeholder)
+# ============================================================================
+# This file is the FVP control plane in Phase 1 (the YAML-driven mode before
+# the Postgres control plane lands in Phase 6). eh-config (Phase 1) is the
+# loader.
+#
+# Gateway contract:
+#   The gateway reads exactly ONE config file. The path is supplied via
+#   --config <PATH> or EH_CONFIG=<PATH>. The gateway has no
+#   connector-specific env vars; everything connector-specific lives in
+#   this file, typed per kind.
+#
+# Secrets are NEVER values here. They are env-var references with the form
+#   ${ENV:SOME_NAME}
+# The env var names are arbitrary — the loader looks up whichever name this
+# file declares and refuses to start if it is missing. Values come from the
+# operator's secrets manager.
+#
+# Adding a new source kind (Postgres, Iceberg, RAG, Snowflake, ...) is a YAML
+# change here plus a registered connector crate. Zero kernel changes.
+# ============================================================================
+
+version: 1
+
+sources:
+  # FVP target. One of N possible source kinds — MySQL is not special.
+  fvp_mysql:
+    kind: mysql
+    host: mysql                          # docker-compose service name
+    port: 3306
+    database: eh_demo
+    username: eh_service
+    password: ${ENV:FVP_MYSQL_SERVICE_PASSWORD}
+    ssl_mode: preferred
+    max_pool_size: 8
+
+entities:
+  Customer:
+    fields:
+      - { name: id,         type: uuid,      nullable: false, pii: false }
+      - { name: name,       type: string,    nullable: false, pii: true }
+      - { name: email,      type: string,    nullable: false, pii: true }
+      - { name: signup_at,  type: timestamp, nullable: false, pii: false }
+      - { name: ltv_usd,    type: decimal,   nullable: false, pii: false }
+
+bindings:
+  - entity: Customer
+    source: fvp_mysql
+    physical_table: eh_demo.customers
+    profile: oltp
+    supported_actions: [read]
+    field_map:
+      id:        id
+      name:      name
+      email:     email
+      signup_at: signup_at
+      ltv_usd:   ltv_usd
+
+routing:
+  - { when: { entity: Customer, action: read }, target: fvp_mysql }

@@ -1,0 +1,13 @@
+[package]
+name = "eh-ctl"
+description = "EventHorizon CLI (Phase 0 stub; subcommands land in Phase 1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "eh-ctl"
+path = "src/main.rs"
+
+[dependencies]

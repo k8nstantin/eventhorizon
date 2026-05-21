@@ -1,0 +1,11 @@
+[package]
+name = "eh-edge-mcp"
+description = "EventHorizon: MCP edge — auto-generated per-entity tool descriptors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

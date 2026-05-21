@@ -1,0 +1,15 @@
+[package]
+name = "eh-core"
+description = "EventHorizon: typed lingua franca (Intent, Entity, Binding, Artifact). No I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true

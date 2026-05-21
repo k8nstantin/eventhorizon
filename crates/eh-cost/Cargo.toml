@@ -1,0 +1,11 @@
+[package]
+name = "eh-cost"
+description = "EventHorizon: Plan-cost estimator, budgets, per-agent quotas, circuit breakers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

@@ -1,0 +1,11 @@
+[package]
+name = "eh-compiler"
+description = "EventHorizon: Intent → DataFusion LogicalPlan compilation + Artifact compaction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+
+[dependencies]

@@ -1,0 +1,146 @@
+# ============================================================================
+# EventHorizon — docker-compose for local development & FVP smoke test
+# ============================================================================
+# Brings up THREE services:
+#
+#   * postgres:16-alpine  — THE CONTROL PLANE. EventHorizon's own state lives
+#                            here (eh_control + eh_operational schemas, 32
+#                            tables, locked down by RLS + grants). At first
+#                            container init the entrypoint runs the unified
+#                            db/postgres/schema.sql (the single source of
+#                            truth), then zz_set_role_passwords.sh attaches
+#                            passwords to eh_admin + eh_service from env-
+#                            injected secrets. Optionally, seeds/ can be
+#                            mounted to pre-register sample data.
+#
+#   * mysql:8.0           — A DATA-PLANE SOURCE (one connector kind among
+#                            many). MySQL is NOT special to the gateway —
+#                            swap or add connectors by editing the YAML
+#                            config. The gateway connects to MySQL as
+#                            eh_service via the locked MySQL grant set.
+#
+#   * eventhorizon        — the gateway binary built from this repo. Reads
+#                            exactly ONE configuration file (EH_CONFIG) for
+#                            its YAML-driven Phase 1 control plane. Phase 6+
+#                            will read durable state from the Postgres
+#                            control plane via the eh_service role.
+#
+# Secrets injected from the operator's shell or local .env (gitignored):
+#
+#   Postgres CONTROL plane (our schema — source of truth in db/postgres/schema.sql):
+#     POSTGRES_ROOT_PASSWORD        — Postgres superuser; init scripts only
+#     EH_ADMIN_PASSWORD             — eh_admin role (operator-only DDL)
+#     EH_SERVICE_PASSWORD           — eh_service role (the app's identity:
+#                                       SELECT on eh_control,
+#                                       SELECT + INSERT on eh_operational,
+#                                       no UPDATE / DELETE / DDL — engine-refused)
+#
+#   MySQL data source (one connector kind among many):
+#     MYSQL_ROOT_PASSWORD           — mysql container superuser, init only
+#     MYSQL_EH_ADMIN_PASSWORD       — operator-only mysql role
+#     MYSQL_EH_SERVICE_PASSWORD     — app's mysql identity (FVP: SELECT only
+#                                       on eh_demo.customers)
+#
+# See .env.example for the template.
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # The CONTROL PLANE — our own schema, locked down on first init.
+  # The schema.sql is the unified source of truth; it is the same content as
+  # concatenating db/postgres/migrations/0001..0012_*.sql in order. CI
+  # asserts the two never drift (scripts/check-schema-sync.sh).
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: eh-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD:?POSTGRES_ROOT_PASSWORD is required}
+      POSTGRES_DB: eh_control_plane
+      EH_ADMIN_PASSWORD: ${EH_ADMIN_PASSWORD:?EH_ADMIN_PASSWORD is required}
+      EH_SERVICE_PASSWORD: ${EH_SERVICE_PASSWORD:?EH_SERVICE_PASSWORD is required}
+    ports:
+      - "5432:5432"
+    volumes:
+      - eh-postgres-data:/var/lib/postgresql/data
+      # Order matters — Postgres entrypoint runs files alphabetically.
+      # 01_schema.sql first; then zz_set_role_passwords.sh attaches passwords.
+      - ./db/postgres/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/postgres/init/zz_set_role_passwords.sh:/docker-entrypoint-initdb.d/zz_set_role_passwords.sh:ro
+      # OPTIONAL: enable demo seeds (sample MySQL connector, default tenant, etc.)
+      # by uncommenting the next line. See db/postgres/seeds/README.md.
+      # - ./db/postgres/seeds:/docker-entrypoint-initdb.d/seeds:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U postgres -d eh_control_plane'
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+
+  # --------------------------------------------------------------------------
+  # MySQL — a connector backend (one kind among many).
+  # --------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: eh-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_EH_ADMIN_PASSWORD: ${MYSQL_EH_ADMIN_PASSWORD:?MYSQL_EH_ADMIN_PASSWORD is required}
+      MYSQL_EH_SERVICE_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD:?MYSQL_EH_SERVICE_PASSWORD is required}
+    ports:
+      - "3306:3306"
+    volumes:
+      - eh-mysql-data:/var/lib/mysql
+      - ./db/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - localhost
+        - -uroot
+        - --password=${MYSQL_ROOT_PASSWORD}
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  # --------------------------------------------------------------------------
+  # The gateway. Connector-agnostic.
+  # --------------------------------------------------------------------------
+  eventhorizon:
+    build:
+      context: .
+      target: runtime
+    image: eventhorizon:dev
+    container_name: eh-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Generic gateway-level env vars only. NO connector-specific names.
+      RUST_LOG: ${RUST_LOG:-info}
+      EH_PORT: "8080"
+      EH_CONFIG: /etc/eventhorizon/eventhorizon.yaml
+
+      # Secret env vars referenced BY THE CONFIG FILE via ${ENV:...}.
+      # Names match exactly what eventhorizon.yaml expects. Each source in
+      # the config picks its own env-var name; the gateway does not care.
+      FVP_MYSQL_SERVICE_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD}
+    volumes:
+      - ./examples/config/eventhorizon.yaml:/etc/eventhorizon/eventhorizon.yaml:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  eh-postgres-data:
+  eh-mysql-data:
