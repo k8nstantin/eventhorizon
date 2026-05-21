@@ -486,4 +486,74 @@ The detector **never auto-applies** entity-schema changes (`architecture §12`).
 
 ---
 
+---
+
+## Appendix A — Table Index (fully-qualified)
+
+The complete set of tables this document covers. The CI guardrail (`scripts/check-schema-sync.sh`) asserts that this set matches the set declared in `db/postgres/migrations/*.sql` and `db/mysql/init/*.sql`.
+
+### `eh_control` (config)
+
+- `eh_control.tenants`
+- `eh_control.agents`
+- `eh_control.agent_secrets`
+- `eh_control.policies`
+- `eh_control.capabilities`
+- `eh_control.sources`
+- `eh_control.source_credentials`
+- `eh_control.source_mysql`
+- `eh_control.source_postgres`
+- `eh_control.source_iceberg`
+- `eh_control.source_duckdb`
+- `eh_control.source_rag`
+- `eh_control.source_model`
+- `eh_control.source_file`
+- `eh_control.source_snowflake`
+- `eh_control.source_mssql`
+- `eh_control.source_duckdb_extensions`
+- `eh_control.entities`
+- `eh_control.entity_fields`
+- `eh_control.entity_bindings`
+- `eh_control.entity_binding_actions`
+- `eh_control.entity_field_bindings`
+- `eh_control.routing_rules`
+- `eh_control.predicate_nodes`
+- `eh_control.entity_relationships`
+
+### `eh_operational` (events)
+
+- `eh_operational.audit_log`
+- `eh_operational.telemetry_events`
+- `eh_operational.source_health`
+- `eh_operational.schema_snapshots`
+- `eh_operational.cost_records`
+- `eh_operational.proposals`
+
+### `eh_demo` (MySQL FVP data source)
+
+- `eh_demo.customers`
+
+---
+
+## Appendix B — DDL Locations
+
+The canonical SQL DDL lives in `db/`:
+
+| Schema | DDL file(s) |
+| --- | --- |
+| `eh_demo.*` (MySQL FVP) | `db/mysql/init/01_fvp_schema.sql` |
+| `eh_control` + `eh_operational` schemas + roles | `db/postgres/migrations/0001_schemas_and_roles.sql` |
+| `eh_control.tenants`, `agents`, `agent_secrets` | `db/postgres/migrations/0002_identity.sql` |
+| `eh_control.policies`, `capabilities` | `db/postgres/migrations/0003_authorization.sql` |
+| `eh_control.sources`, `source_credentials` | `db/postgres/migrations/0004_sources_core.sql` |
+| `eh_control.source_<kind>` family + `source_duckdb_extensions` | `db/postgres/migrations/0005_source_kinds.sql` |
+| `eh_control.entities`, `entity_fields` (+ deferred FKs) | `db/postgres/migrations/0006_semantic_schema.sql` |
+| `eh_control.entity_bindings`, `entity_binding_actions`, `entity_field_bindings`, `routing_rules`, `predicate_nodes` | `db/postgres/migrations/0007_bindings_routing.sql` |
+| `eh_control.entity_relationships` | `db/postgres/migrations/0008_entity_relationships.sql` |
+| `eh_operational.audit_log` (partitioned) | `db/postgres/migrations/0009_operational_audit.sql` |
+| `eh_operational.telemetry_events`, `source_health`, `schema_snapshots`, `cost_records`, `proposals` | `db/postgres/migrations/0010_operational_other.sql` |
+| RLS policies on every tenant-scoped table | `db/postgres/migrations/0011_rls_policies.sql` |
+
+---
+
 *Document version: v0.1 (DRAFT) · maintained at [github.com/k8nstantin/eventhorizon](https://github.com/k8nstantin/eventhorizon) · subject to per-table operator approval per `zero-trust §11`.*
