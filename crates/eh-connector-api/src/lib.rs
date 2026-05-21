@@ -1,25 +1,31 @@
 //! # eh-connector-api
 //!
-//! Public Connector trait + DataFusion TableProvider re-export + ConnectorCaps
+//! Public trait + registry every EventHorizon backend implements / plugs
+//! into. Defines the capability surface, the typed connector error
+//! taxonomy, the read / append execution contract, and the
+//! `ConnectorRegistry` through which connectors are added to the running
+//! gateway — the same path a community connector author would use
+//! (zero-trust §15).
 //!
-//! ## Phase 0 status
-//! This crate is a stub. Concrete implementation arrives in a later phase per
-//! [§20 of the architecture](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#20-phased-implementation-plan).
-//! The crate exists now so the workspace compiles end-to-end.
+//! The Phase 1 surface intentionally exposes only SELECT-shaped reads and
+//! INSERT-shaped appends. UPDATE / DELETE / DDL are not part of the
+//! contract — they are not actions the application code is allowed to
+//! perform per zero-trust §10.
+//!
+//! Reference: [architecture §9](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#9-connector-trait--lifecycle)
+//! and [CONNECTORS.md](https://github.com/k8nstantin/eventhorizon/blob/main/CONNECTORS.md).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Placeholder until concrete implementation lands.
-#[doc(hidden)]
-pub const __PHASE_0_PLACEHOLDER: &str = "eh-connector-api stub";
+mod caps;
+mod connector;
+mod errors;
+mod outcome;
+mod registry;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn placeholder_exists() {
-        assert!(!__PHASE_0_PLACEHOLDER.is_empty());
-    }
-}
+pub use caps::{ConnectorCaps, PushdownLevel};
+pub use connector::Connector;
+pub use errors::{ConnectorError, ConnectorResult};
+pub use outcome::AppendOutcome;
+pub use registry::{ConnectorFactory, ConnectorRegistry};

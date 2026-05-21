@@ -70,8 +70,8 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::MysqlSslMode;
     use eh_core::{Action, EntityField, FieldMap, FieldType, Profile};
+    use serde_yaml::Value;
 
     fn sample_yaml() -> &'static str {
         r#"
@@ -124,15 +124,37 @@ routing:
         assert_eq!(cfg.routing.len(), 1);
 
         let src = cfg.sources.get("fvp_mysql").unwrap();
-        match src {
-            SourceConfig::Mysql(m) => {
-                assert_eq!(m.host, "mysql");
-                assert_eq!(m.port, 3306);
-                assert_eq!(m.username, "eh_service");
-                assert_eq!(m.password.env_name(), "FVP_MYSQL_SERVICE_PASSWORD");
-                assert_eq!(m.ssl_mode, MysqlSslMode::Preferred);
-            }
-        }
+        assert_eq!(src.kind, "mysql");
+        // The connector-specific keys live in the opaque mapping — `eh-config`
+        // does not interpret them; the connector author parses them via
+        // `SourceConfig::parse_into::<TheirConfigStruct>()`.
+        assert_eq!(
+            src.raw
+                .get(Value::String("host".into()))
+                .and_then(|v| v.as_str()),
+            Some("mysql")
+        );
+        assert_eq!(
+            src.raw
+                .get(Value::String("port".into()))
+                .and_then(|v| v.as_u64()),
+            Some(3306)
+        );
+        assert_eq!(
+            src.raw
+                .get(Value::String("username".into()))
+                .and_then(|v| v.as_str()),
+            Some("eh_service")
+        );
+        // Password is stored as the raw `${ENV:...}` string in the opaque
+        // mapping; the connector's typed config struct can hold a SecretRef
+        // and parse it via Deserialize.
+        assert_eq!(
+            src.raw
+                .get(Value::String("password".into()))
+                .and_then(|v| v.as_str()),
+            Some("${ENV:FVP_MYSQL_SERVICE_PASSWORD}")
+        );
 
         let entities = cfg.entities_resolved();
         let customer = entities.get("Customer").unwrap();
