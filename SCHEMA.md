@@ -197,6 +197,8 @@ Each registered connector kind owns its own typed config table. FK 1:1 to `sourc
 
 #### 3.7.1 `source_mysql` (Phase 1 worked example)
 
+After migration `0005_source_kinds.sql` + `0012_source_auth_extension.sql`:
+
 ```sql
 CREATE TABLE eh_control.source_mysql (
   source_id            UUID PRIMARY KEY REFERENCES eh_control.sources(id),
@@ -204,25 +206,87 @@ CREATE TABLE eh_control.source_mysql (
   port                 INT  NOT NULL CHECK (port BETWEEN 1 AND 65535),
   database_name        TEXT NOT NULL,
   username_secret_ref  TEXT NOT NULL,
-  password_secret_ref  TEXT NOT NULL,
-  ssl_mode             TEXT NOT NULL CHECK (ssl_mode IN ('disabled','preferred','required','verify_ca','verify_identity')),
+  -- password_secret_ref is required when auth_kind='password'; NULL otherwise.
+  password_secret_ref  TEXT,
+  ssl_mode             TEXT NOT NULL DEFAULT 'preferred'
+    CHECK (ssl_mode IN ('disabled','preferred','required','verify_ca','verify_identity')),
   max_pool_size        INT  NOT NULL DEFAULT 8 CHECK (max_pool_size > 0),
+
+  -- Auth-kind extension (0012)
+  auth_kind            TEXT NOT NULL DEFAULT 'password'
+    CHECK (auth_kind IN ('password','mtls','iam_aws','iam_gcp')),
+  tls_cert_secret_ref  TEXT,
+  tls_key_secret_ref   TEXT,
+  tls_ca_secret_ref    TEXT,
+  iam_role_arn         TEXT,
+  iam_service_account  TEXT,
+
   valid_from           TIMESTAMPTZ NOT NULL DEFAULT now(),
   valid_to             TIMESTAMPTZ NOT NULL DEFAULT 'infinity',
-  is_current           BOOLEAN     NOT NULL DEFAULT true
+  is_current           BOOLEAN     NOT NULL DEFAULT true,
+
+  -- Engine-refused unless the auth_kind matches its required secret refs
+  -- and no foreign refs (e.g. iam_role_arn) are set for other kinds.
+  CONSTRAINT source_mysql_auth_shape_chk CHECK ( /* see 0012 for full body */ )
 );
 ```
 
-#### 3.7.2 Other connector kinds (forward-looking)
+Required-field invariants per `auth_kind` (engine-enforced via `source_mysql_auth_shape_chk`):
 
-- `source_postgres` — same shape as `source_mysql` with `application_name`, `search_path` columns.
-- `source_iceberg` — `catalog_uri`, `namespace`, `warehouse`, `auth_kind` columns.
-- `source_duckdb` — `database_path` (or `:memory:`), `extensions[]` text array.
+| `auth_kind` | Required (NOT NULL) | Forbidden (must be NULL) |
+| --- | --- | --- |
+| `password` | `password_secret_ref` | `tls_cert_secret_ref`, `tls_key_secret_ref`, `iam_role_arn`, `iam_service_account` |
+| `mtls` | `tls_cert_secret_ref`, `tls_key_secret_ref` | `password_secret_ref`, `iam_role_arn`, `iam_service_account` |
+| `iam_aws` | `iam_role_arn` | `password_secret_ref`, `tls_cert_secret_ref`, `tls_key_secret_ref`, `iam_service_account` |
+| `iam_gcp` | `iam_service_account` | `password_secret_ref`, `tls_cert_secret_ref`, `tls_key_secret_ref`, `iam_role_arn` |
+
+`tls_ca_secret_ref` is **orthogonal** to `auth_kind` — set it when `ssl_mode IN ('verify_ca','verify_identity')` regardless of the auth path.
+
+#### 3.7.2 `source_postgres`
+
+Same shape as `source_mysql`. Same `auth_kind` extension applies. `ssl_mode` accepts the Postgres-specific values (`disable / allow / prefer / require / verify-ca / verify-full`).
+
+```sql
+CREATE TABLE eh_control.source_postgres (
+  source_id            UUID PRIMARY KEY REFERENCES eh_control.sources(id),
+  host                 TEXT NOT NULL,
+  port                 INT  NOT NULL DEFAULT 5432 CHECK (port BETWEEN 1 AND 65535),
+  database_name        TEXT NOT NULL,
+  username_secret_ref  TEXT NOT NULL,
+  password_secret_ref  TEXT,
+  application_name     TEXT NOT NULL DEFAULT 'eventhorizon',
+  ssl_mode             TEXT NOT NULL DEFAULT 'require'
+    CHECK (ssl_mode IN ('disable','allow','prefer','require','verify-ca','verify-full')),
+  max_pool_size        INT  NOT NULL DEFAULT 8 CHECK (max_pool_size > 0),
+
+  -- Auth-kind extension (0012)
+  auth_kind            TEXT NOT NULL DEFAULT 'password'
+    CHECK (auth_kind IN ('password','mtls','iam_aws','iam_gcp')),
+  tls_cert_secret_ref  TEXT,
+  tls_key_secret_ref   TEXT,
+  tls_ca_secret_ref    TEXT,
+  iam_role_arn         TEXT,
+  iam_service_account  TEXT,
+
+  valid_from           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  valid_to             TIMESTAMPTZ NOT NULL DEFAULT 'infinity',
+  is_current           BOOLEAN     NOT NULL DEFAULT true,
+
+  CONSTRAINT source_postgres_auth_shape_chk CHECK ( /* see 0012 for full body */ )
+);
+```
+
+Per-`auth_kind` invariants are identical to `source_mysql` above.
+
+#### 3.7.3 Other connector kinds (forward-looking)
+
+- `source_iceberg` — `catalog_uri`, `namespace`, `warehouse`, `auth_kind` columns (`none / oauth / sigv4 / token`).
+- `source_duckdb` — `database_path` (or `:memory:`); extensions normalised into `source_duckdb_extensions`.
 - `source_rag` — `vector_store_uri`, `embedding_model`, `top_k_default`.
 - `source_model` — `provider`, `model_id`, `api_key_secret_ref`, `max_tokens_default`.
 - `source_file` — `root_path`, `format`, `partition_pattern`.
-- `source_snowflake` — `account`, `warehouse`, `database`, `auth_kind` (ADBC-backed).
-- `source_mssql` — `host`, `port`, `instance`, `database`, `auth_kind` (`tiberius`-backed).
+- `source_snowflake` — `account`, `warehouse`, `database`, `auth_kind` (`password / key_pair / oauth`, ADBC-backed).
+- `source_mssql` — `host`, `port`, `instance`, `database`, `auth_kind` (`sql / integrated / aad`, `tiberius`-backed).
 
 Each is a separate migration, operator-approved per `§11`.
 
@@ -553,6 +617,7 @@ The canonical SQL DDL lives in `db/`:
 | `eh_operational.audit_log` (partitioned) | `db/postgres/migrations/0009_operational_audit.sql` |
 | `eh_operational.telemetry_events`, `source_health`, `schema_snapshots`, `cost_records`, `proposals` | `db/postgres/migrations/0010_operational_other.sql` |
 | RLS policies on every tenant-scoped table | `db/postgres/migrations/0011_rls_policies.sql` |
+| `source_mysql` / `source_postgres` auth-kind extension (mtls, iam_aws, iam_gcp) | `db/postgres/migrations/0012_source_auth_extension.sql` |
 
 ---
 
