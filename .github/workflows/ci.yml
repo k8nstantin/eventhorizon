@@ -57,12 +57,21 @@ jobs:
   # Schema-first guardrail (zero-trust §11)
   # ==========================================================================
   schema-sync:
-    name: schema sync (SCHEMA.md ↔ db/**)
+    name: schema sync (SCHEMA.md ↔ migrations ↔ schema.sql)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: SCHEMA.md must match db/ DDL
+      - name: SCHEMA.md, migrations, and schema.sql must agree
         run: bash scripts/check-schema-sync.sh
+
+  schema-lockdown:
+    name: control-plane lockdown verify (apply schema.sql + grant check)
+    runs-on: ubuntu-latest
+    needs: schema-sync
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply schema.sql to fresh Postgres, assert eh_service is constrained
+        run: bash scripts/verify-control-plane-lockdown.sh
 
   # ==========================================================================
   # Container build smoke test
