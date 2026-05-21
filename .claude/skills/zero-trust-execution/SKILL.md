@@ -300,6 +300,46 @@ Anti-patterns (banned outright):
 
 **Schema string round-trips are a schema-change candidate, not a loophole.** If a row-level-security policy uses `tenant::text = current_setting('app.session_tenant')` and the session var is a `string`, the application is forced into one centralised conversion. That centralised conversion is the **only** acceptable appearance of the pattern, and it must be flagged as schema technical debt (operator-approval territory under §7 / §11) — not scattered to every call-site as a convenience.
 
+### 15. Dogfood the Application's Public Path — Never Backdoor
+
+The application exposes specific paths for every operation an operator / user / contributor would perform: a CLI subcommand, a config-file loader, an admin REST endpoint, a registry trait. **You MUST exercise the same paths the eventual user would exercise.** Never bypass them.
+
+The fact that you *can* go directly to the database to insert a source row, or wire a specific connector into the binary as a hardcoded `use eh_connector_mysql::...`, does not mean you should. Doing so creates a **back door** that:
+
+- Defeats the test of the very API the system exists to expose.
+- Couples the kernel to specific implementations (the kernel becomes opinionated about which connector is "real" or "first").
+- Lets bugs in the operator-facing path go undetected because internal code never exercised it.
+- Means the system that supposedly proves "anyone can add a connector via this API" has never actually been used that way — including by you.
+
+**Concrete applications of this rule:**
+
+| Operation | Forbidden (back door) | Required (public path) |
+|---|---|---|
+| Register a connector kind | `let m = MysqlConnector::connect(cfg).await?` hardcoded in `eh-bin/main.rs` | Connector crate calls `registry.register(MysqlFactory)`; binary holds only `ConnectorRegistry`, never specific connector types |
+| Add a source / agent / binding / capability to the running gateway | Inserting a row directly into `eh_control.sources` via `eh_admin` | `eh ctl source add ...` (CLI) or `POST /admin/v1/sources` (admin API) — both go through the validated admin path |
+| Bootstrap the FVP config | Embedding source/entity/binding definitions as Rust constants | A YAML config file loaded by `eh-config` — the same loader an operator would use |
+| Test a new connector locally | Linking the connector crate into a hand-rolled test harness that bypasses the gateway | Build it as a community connector would, register it via the `ConnectorRegistry` feature flag, exercise it through the same CLI/REST/MCP edges users would |
+| Apply a schema migration | App code opening an `eh_admin` connection to `ALTER` something | Operator runs the migration manually under their admin session (per §10 / §13) |
+| Generate seed data | Hardcoded INSERTs in `eh-bin` startup | `db/postgres/seeds/*.sql` mounted at first init OR `eh ctl seed apply` (CLI) |
+
+**Specifically for the connector pipeline:** every connector — first-party MySQL, Postgres, Iceberg, DuckDB **included** — is built and added through the public path. There is no "first-class" connector that the kernel ships with as a baked-in dependency. The connector trait, the registry, the feature-flag gating, and the YAML / admin-API source-registration flow are the public path; we use them. **A connector that does not register through the public path is not a valid connector implementation.**
+
+**Why this matters for code review and the FVP**: when the operator plugs in the FVP and adds their own (Postgres, Snowflake, MongoDB, whatever) source, the same code path they're using has been validated *by us* every time we added MySQL. If we skipped that path, we've shipped a system whose extension story has literally never been exercised.
+
+**Self-check before any "I'll just register this directly" shortcut:**
+
+> *"Could a community connector author do this the way I'm about to? If not, I'm building a back door."*
+
+Anti-patterns (banned outright):
+
+- ❌ `use eh_connector_<kind>::<Concrete>Connector` in `eh-bin` or any kernel crate.
+- ❌ Per-kind `enum` variants in `eh-config` that bake specific connector knowledge into core (kind-specific configs belong in the connector's own crate, parsed from an opaque `serde_yaml::Value` / `serde_json::Value` subtree).
+- ❌ `eh-bin/main.rs` containing a list of `if cfg.kind == "mysql" { … } else if cfg.kind == "postgres" { … }` branches.
+- ❌ Direct DB inserts to seed config rows during integration tests when an admin API exists.
+- ❌ Hand-rolled connector test harnesses that bypass the gateway's routing / authz / telemetry paths.
+
+The correct pattern is uniform: **kernel exposes contract → connector / operator uses the contract → contract is the only thing in the kernel's address space**.
+
 ### Execution Loop Enforcement
-For every single action you take, you must silently ask yourself: *"Am I guessing? Am I rushing? Did I read the documentation?"* If the answer to any of these is yes, you are violating this protocol.
+For every single action you take, you must silently ask yourself: *"Am I guessing? Am I rushing? Did I read the documentation? Am I using the same path a user would, or am I creating a back door?"* If the answer to any of these is yes, you are violating this protocol.
 </instructions>

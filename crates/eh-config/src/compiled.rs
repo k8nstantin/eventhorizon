@@ -127,23 +127,28 @@ impl Config {
 mod tests {
     use super::*;
     use crate::config::EntityFromYaml;
-    use crate::secret::SecretRef;
-    use crate::source::{MysqlSourceConfig, MysqlSslMode};
     use eh_core::{Action, EntityField, FieldMap, FieldType, Profile};
+    use serde_yaml::{Mapping, Value};
 
     fn mk_source() -> (String, SourceConfig) {
-        (
-            "fvp_mysql".to_string(),
-            SourceConfig::Mysql(MysqlSourceConfig {
-                host: "mysql".into(),
-                port: 3306,
-                database: "eh_demo".into(),
-                username: "eh_service".into(),
-                password: SecretRef::Env("FVP_MYSQL_SERVICE_PASSWORD".into()),
-                ssl_mode: MysqlSslMode::Preferred,
-                max_pool_size: 8,
-            }),
-        )
+        // Build an opaque source config the way the YAML deserialiser would
+        // — `eh-config` knows nothing about specific connector kinds.
+        let mut raw = Mapping::new();
+        raw.insert(Value::String("host".into()), Value::String("mysql".into()));
+        raw.insert(Value::String("port".into()), Value::Number(3306.into()));
+        raw.insert(
+            Value::String("database".into()),
+            Value::String("eh_demo".into()),
+        );
+        raw.insert(
+            Value::String("username".into()),
+            Value::String("eh_service".into()),
+        );
+        raw.insert(
+            Value::String("password".into()),
+            Value::String("${ENV:FVP_MYSQL_SERVICE_PASSWORD}".into()),
+        );
+        ("fvp_mysql".to_string(), SourceConfig::new("mysql", raw))
     }
 
     fn mk_entity() -> (String, EntityFromYaml) {

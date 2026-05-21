@@ -1,25 +1,36 @@
 //! # eh-connector-mysql
 //!
-//! MySQL connector — read-only in FVP, sqlx-backed, UUIDv7 BINARY(16) native bind
+//! MySQL connector implementing the `Connector` trait. Both read (SELECT)
+//! and write (INSERT) paths are supported by the connector itself; whether
+//! a given binding exposes write is controlled by the YAML binding's
+//! `supported_actions` parameter — the connector does not gate that.
 //!
-//! ## Phase 0 status
-//! This crate is a stub. Concrete implementation arrives in a later phase per
-//! [§20 of the architecture](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#20-phased-implementation-plan).
-//! The crate exists now so the workspace compiles end-to-end.
+//! Wiring (per zero-trust §15 — public path only): the binary registers
+//! this connector via `eh_connector_mysql::register(&mut registry)` behind
+//! its Cargo feature flag. The kernel never references `MysqlConnector` or
+//! `MysqlSourceConfig` directly.
+//!
+//! Wire-level discipline:
+//! - Parameterised queries only — never `format!()`-built user input.
+//! - UUIDv7 binds natively to `BINARY(16)` via the `sqlx`+`uuid` feature
+//!   pairing. No `UUID_TO_BIN()` shim, no string round-trips (zero-trust §14).
+//! - Timestamps as `chrono::NaiveDateTime`. Decimals as `rust_decimal::Decimal`.
+//!   No type coercion through `String`.
+//! - SCD2 columns (`valid_from`, `valid_to`, `is_current`) are set by the
+//!   database defaults on INSERT — the connector NEVER references them
+//!   explicitly. State changes are pure INSERTs (zero-trust §10).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Placeholder until concrete implementation lands.
-#[doc(hidden)]
-pub const __PHASE_0_PLACEHOLDER: &str = "eh-connector-mysql stub";
+mod config;
+mod connector;
+mod factory;
+mod ident;
+mod insert;
+mod query;
+mod types;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn placeholder_exists() {
-        assert!(!__PHASE_0_PLACEHOLDER.is_empty());
-    }
-}
+pub use config::{MysqlSourceConfig, MysqlSslMode};
+pub use connector::MysqlConnector;
+pub use factory::{register, MysqlFactory, KIND};

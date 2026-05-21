@@ -36,4 +36,4 @@ pub use errors::{ConfigError, ConfigResult};
 pub use loader::{load_from_env, load_from_path};
 pub use routing::{RoutingMatch, RoutingRule};
 pub use secret::{Secret, SecretRef};
-pub use source::{MysqlSourceConfig, MysqlSslMode, SourceConfig};
+pub use source::SourceConfig;

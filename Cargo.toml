@@ -48,6 +48,20 @@ serde_yaml = "0.9"
 # In-memory config cache (ArcSwap<CompiledConfig> for hot-swap on reload)
 arc-swap = "1.7"
 
+# sqlx — MySQL driver for eh-connector-mysql.
+# Features pinned per the FVP needs: tokio runtime + rustls TLS,
+# native uuid (BINARY(16) bind), chrono (TIMESTAMP), rust_decimal (DECIMAL).
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "mysql",
+    "uuid",
+    "chrono",
+    "rust_decimal",
+    "json",
+] }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+rust_decimal = { version = "1", default-features = false, features = ["serde"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"
