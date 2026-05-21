@@ -4,19 +4,26 @@
 # Brings up:
 #   * mysql:8.0           — Phase 1 FVP data source with init scripts
 #                            (db/mysql/init/01_fvp_schema.sql + 02_users.sh).
-#   * eventhorizon        — the gateway binary built from this repo.
+#                            MySQL is one of N possible source kinds — not
+#                            special to the gateway. Swap or add sources by
+#                            editing examples/config/eventhorizon.yaml.
+#   * eventhorizon        — the gateway binary built from this repo. The
+#                            gateway reads EXACTLY ONE configuration file
+#                            (EH_CONFIG); everything connector-specific lives
+#                            in that file. The gateway has no MySQL-specific
+#                            (or any-other-connector-specific) env vars.
 #
-# Secrets are injected from the operator's shell or a local .env file
-# (NOT committed). Required env vars:
+# Secrets injected from the operator's shell or local .env (gitignored):
 #
-#   MYSQL_ROOT_PASSWORD           — operator-owned, for entrypoint user creation
-#   MYSQL_EH_ADMIN_PASSWORD       — for eh_admin role (operator use only)
-#   MYSQL_EH_SERVICE_PASSWORD     — for eh_service role (the application's identity)
+#   MYSQL_ROOT_PASSWORD             — operator-owned, for the mysql container's
+#                                     entrypoint user creation
+#   MYSQL_EH_ADMIN_PASSWORD         — operator-only mysql role
+#   MYSQL_EH_SERVICE_PASSWORD       — application's mysql identity, passed
+#                                     into the gateway container as
+#                                     FVP_MYSQL_SERVICE_PASSWORD and looked
+#                                     up by eventhorizon.yaml via ${ENV:...}
 #
-# Example local .env (gitignored):
-#   MYSQL_ROOT_PASSWORD=changeme_root
-#   MYSQL_EH_ADMIN_PASSWORD=changeme_admin
-#   MYSQL_EH_SERVICE_PASSWORD=changeme_service
+# See .env.example for the template.
 # ============================================================================
 
 services:
@@ -57,14 +64,17 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Generic gateway-level env vars only. NO connector-specific names.
       RUST_LOG: ${RUST_LOG:-info}
       EH_PORT: "8080"
-      # Phase 1 reads these to connect to MySQL as eh_service (SELECT only).
-      EH_MYSQL_HOST: mysql
-      EH_MYSQL_PORT: "3306"
-      EH_MYSQL_DATABASE: eh_demo
-      EH_MYSQL_USER: eh_service
-      EH_MYSQL_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD}
+      EH_CONFIG: /etc/eventhorizon/eventhorizon.yaml
+
+      # Secret env vars referenced BY THE CONFIG FILE via ${ENV:...}.
+      # Names match exactly what eventhorizon.yaml expects. Each source in
+      # the config picks its own env-var name; the gateway does not care.
+      FVP_MYSQL_SERVICE_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD}
+    volumes:
+      - ./examples/config/eventhorizon.yaml:/etc/eventhorizon/eventhorizon.yaml:ro
     depends_on:
       mysql:
         condition: service_healthy

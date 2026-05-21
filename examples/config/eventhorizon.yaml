@@ -2,25 +2,36 @@
 # EventHorizon — example configuration (Phase 0 placeholder)
 # ============================================================================
 # This file is the FVP control plane in Phase 1 (the YAML-driven mode before
-# the Postgres control plane lands in Phase 6). The schema below shows the
-# intended shape; eh-config (Phase 1) is the loader.
+# the Postgres control plane lands in Phase 6). eh-config (Phase 1) is the
+# loader.
+#
+# Gateway contract:
+#   The gateway reads exactly ONE config file. The path is supplied via
+#   --config <PATH> or EH_CONFIG=<PATH>. The gateway has no
+#   connector-specific env vars; everything connector-specific lives in
+#   this file, typed per kind.
 #
 # Secrets are NEVER values here. They are env-var references with the form
-# ${ENV:NAME} — the loader looks them up at startup and refuses to start if
-# any are missing. The values come from the operator's secrets manager.
+#   ${ENV:SOME_NAME}
+# The env var names are arbitrary — the loader looks up whichever name this
+# file declares and refuses to start if it is missing. Values come from the
+# operator's secrets manager.
+#
+# Adding a new source kind (Postgres, Iceberg, RAG, Snowflake, ...) is a YAML
+# change here plus a registered connector crate. Zero kernel changes.
 # ============================================================================
 
 version: 1
 
 sources:
-  # Phase 1 FVP target. Connects as eh_service (SELECT only on eh_demo.customers).
-  pg_mysql_demo:
+  # FVP target. One of N possible source kinds — MySQL is not special.
+  fvp_mysql:
     kind: mysql
-    host: ${ENV:EH_MYSQL_HOST}
+    host: mysql                          # docker-compose service name
     port: 3306
     database: eh_demo
-    username: ${ENV:EH_MYSQL_USER}
-    password: ${ENV:EH_MYSQL_PASSWORD}
+    username: eh_service
+    password: ${ENV:FVP_MYSQL_SERVICE_PASSWORD}
     ssl_mode: preferred
     max_pool_size: 8
 
@@ -35,7 +46,7 @@ entities:
 
 bindings:
   - entity: Customer
-    source: pg_mysql_demo
+    source: fvp_mysql
     physical_table: eh_demo.customers
     profile: oltp
     supported_actions: [read]
@@ -47,4 +58,4 @@ bindings:
       ltv_usd:   ltv_usd
 
 routing:
-  - { when: { entity: Customer, action: read }, target: pg_mysql_demo }
+  - { when: { entity: Customer, action: read }, target: fvp_mysql }
