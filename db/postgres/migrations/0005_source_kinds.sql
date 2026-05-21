@@ -132,7 +132,6 @@ COMMENT ON TABLE eh_control.source_iceberg
 CREATE TABLE eh_control.source_duckdb (
   source_id      UUID         NOT NULL,
   database_path  TEXT         NOT NULL DEFAULT ':memory:',
-  extensions     TEXT[]       NOT NULL DEFAULT '{}',
 
   valid_from     TIMESTAMPTZ  NOT NULL DEFAULT now(),
   valid_to       TIMESTAMPTZ  NOT NULL DEFAULT 'infinity',
@@ -146,7 +145,38 @@ CREATE TABLE eh_control.source_duckdb (
 );
 
 COMMENT ON TABLE eh_control.source_duckdb
-  IS 'DuckDB connector config (in-memory or file-backed). 1:1 with sources where kind=''duckdb''.';
+  IS 'DuckDB connector config (in-memory or file-backed). 1:1 with sources where kind=''duckdb''. Multi-valued extensions are normalized into source_duckdb_extensions (4NF).';
+
+-- 4a. source_duckdb_extensions (4NF normalization of source_duckdb.extensions)
+-- ----------------------------------------------------------------------------
+
+CREATE TABLE eh_control.source_duckdb_extensions (
+  id              UUID         NOT NULL,
+  source_id       UUID         NOT NULL,
+  extension_name  TEXT         NOT NULL,
+  position        INT          NOT NULL DEFAULT 0,
+
+  valid_from      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  valid_to        TIMESTAMPTZ  NOT NULL DEFAULT 'infinity',
+  is_current      BOOLEAN      NOT NULL DEFAULT true,
+
+  PRIMARY KEY (id),
+  CONSTRAINT source_duckdb_extensions_source_fk
+    FOREIGN KEY (source_id) REFERENCES eh_control.source_duckdb(source_id),
+  CONSTRAINT source_duckdb_extensions_name_basic
+    CHECK (extension_name ~ '^[a-z][a-z0-9_]{0,62}$'),
+  CONSTRAINT source_duckdb_extensions_position_nonneg
+    CHECK (position >= 0),
+  CONSTRAINT source_duckdb_extensions_valid_order
+    CHECK (valid_to >= valid_from)
+);
+
+CREATE INDEX source_duckdb_extensions_source_idx
+  ON eh_control.source_duckdb_extensions (source_id, position)
+  WHERE is_current = true;
+
+COMMENT ON TABLE eh_control.source_duckdb_extensions
+  IS 'DuckDB extensions to load per source. 4NF-normalised from what was previously a TEXT[] column.';
 
 -- ============================================================================
 -- 5. source_rag (forward-looking)

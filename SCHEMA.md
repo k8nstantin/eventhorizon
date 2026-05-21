@@ -510,9 +510,11 @@ The complete set of tables this document covers. The CI guardrail (`scripts/chec
 - `eh_control.source_file`
 - `eh_control.source_snowflake`
 - `eh_control.source_mssql`
+- `eh_control.source_duckdb_extensions`
 - `eh_control.entities`
 - `eh_control.entity_fields`
 - `eh_control.entity_bindings`
+- `eh_control.entity_binding_actions`
 - `eh_control.entity_field_bindings`
 - `eh_control.routing_rules`
 - `eh_control.predicate_nodes`
@@ -544,9 +546,9 @@ The canonical SQL DDL lives in `db/`:
 | `eh_control.tenants`, `agents`, `agent_secrets` | `db/postgres/migrations/0002_identity.sql` |
 | `eh_control.policies`, `capabilities` | `db/postgres/migrations/0003_authorization.sql` |
 | `eh_control.sources`, `source_credentials` | `db/postgres/migrations/0004_sources_core.sql` |
-| `eh_control.source_<kind>` family | `db/postgres/migrations/0005_source_kinds.sql` |
+| `eh_control.source_<kind>` family + `source_duckdb_extensions` | `db/postgres/migrations/0005_source_kinds.sql` |
 | `eh_control.entities`, `entity_fields` (+ deferred FKs) | `db/postgres/migrations/0006_semantic_schema.sql` |
-| `eh_control.entity_bindings`, `entity_field_bindings`, `routing_rules`, `predicate_nodes` | `db/postgres/migrations/0007_bindings_routing.sql` |
+| `eh_control.entity_bindings`, `entity_binding_actions`, `entity_field_bindings`, `routing_rules`, `predicate_nodes` | `db/postgres/migrations/0007_bindings_routing.sql` |
 | `eh_control.entity_relationships` | `db/postgres/migrations/0008_entity_relationships.sql` |
 | `eh_operational.audit_log` (partitioned) | `db/postgres/migrations/0009_operational_audit.sql` |
 | `eh_operational.telemetry_events`, `source_health`, `schema_snapshots`, `cost_records`, `proposals` | `db/postgres/migrations/0010_operational_other.sql` |

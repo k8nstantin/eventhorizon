@@ -16,7 +16,6 @@ CREATE TABLE eh_control.entity_bindings (
   source_id                UUID         NOT NULL,
   physical_table           TEXT         NOT NULL,
   profile                  TEXT         NOT NULL DEFAULT 'oltp',
-  supported_actions        TEXT[]       NOT NULL DEFAULT '{read}',
   lifecycle_state          TEXT         NOT NULL DEFAULT 'bound',
   shadow_traffic_percent   INT          NOT NULL DEFAULT 0,
 
@@ -33,10 +32,6 @@ CREATE TABLE eh_control.entity_bindings (
     CHECK (profile IN ('oltp','analytical','archival','similarity')),
   CONSTRAINT entity_bindings_lifecycle_chk
     CHECK (lifecycle_state IN ('bound','staging','shadow','production','retired')),
-  CONSTRAINT entity_bindings_supported_actions_nonempty
-    CHECK (array_length(supported_actions, 1) IS NOT NULL AND array_length(supported_actions, 1) > 0),
-  CONSTRAINT entity_bindings_supported_actions_valid
-    CHECK (supported_actions <@ ARRAY['read','append','update','delete']::text[]),
   CONSTRAINT entity_bindings_shadow_pct_range
     CHECK (shadow_traffic_percent BETWEEN 0 AND 100),
   CONSTRAINT entity_bindings_table_basic
@@ -58,7 +53,39 @@ CREATE INDEX entity_bindings_profile_idx
   WHERE is_current = true;
 
 COMMENT ON TABLE eh_control.entity_bindings
-  IS 'Maps a logical entity to a physical table in a specific source. supported_actions is the per-binding capability declaration.';
+  IS 'Maps a logical entity to a physical table in a specific source. Per-binding allowed actions live in entity_binding_actions (4NF). Per-field column mappings live in entity_field_bindings.';
+
+-- 1a. entity_binding_actions (4NF normalization of entity_bindings.supported_actions)
+-- ----------------------------------------------------------------------------
+
+CREATE TABLE eh_control.entity_binding_actions (
+  id           UUID         NOT NULL,
+  binding_id   UUID         NOT NULL,
+  action       TEXT         NOT NULL,
+
+  valid_from   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+  valid_to     TIMESTAMPTZ  NOT NULL DEFAULT 'infinity',
+  is_current   BOOLEAN      NOT NULL DEFAULT true,
+
+  PRIMARY KEY (id),
+  CONSTRAINT entity_binding_actions_binding_fk
+    FOREIGN KEY (binding_id) REFERENCES eh_control.entity_bindings(id),
+  CONSTRAINT entity_binding_actions_action_chk
+    CHECK (action IN ('read','append','update','delete')),
+  CONSTRAINT entity_binding_actions_valid_order
+    CHECK (valid_to >= valid_from)
+);
+
+CREATE INDEX entity_binding_actions_binding_idx
+  ON eh_control.entity_binding_actions (binding_id, action)
+  WHERE is_current = true;
+
+CREATE INDEX entity_binding_actions_action_idx
+  ON eh_control.entity_binding_actions (action)
+  WHERE is_current = true;
+
+COMMENT ON TABLE eh_control.entity_binding_actions
+  IS 'Per-binding allowed actions (4NF-normalised from what was previously a TEXT[] column). Enables future per-action attributes (rate limits, cost overrides) without schema churn.';
 
 -- 2. entity_field_bindings
 -- ----------------------------------------------------------------------------

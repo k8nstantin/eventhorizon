@@ -130,6 +130,22 @@ BEGIN
 END
 $$;
 
+-- 1.8a source_duckdb_extensions — scoped via source_duckdb → source → tenant.
+ALTER TABLE eh_control.source_duckdb_extensions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eh_control.source_duckdb_extensions FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY source_duckdb_extensions_select_tenant ON eh_control.source_duckdb_extensions
+  FOR SELECT TO eh_service
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM eh_control.source_duckdb sd
+      JOIN eh_control.sources s ON s.id = sd.source_id
+      WHERE sd.source_id = source_duckdb_extensions.source_id
+        AND s.tenant_id = eh_control.current_tenant_id()
+    )
+  );
+
 -- 1.9 entities — scoped by tenant_id.
 ALTER TABLE eh_control.entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE eh_control.entities FORCE ROW LEVEL SECURITY;
@@ -162,6 +178,22 @@ CREATE POLICY entity_bindings_select_tenant ON eh_control.entity_bindings
     EXISTS (
       SELECT 1 FROM eh_control.entities e
       WHERE e.id = entity_bindings.entity_id
+        AND e.tenant_id = eh_control.current_tenant_id()
+    )
+  );
+
+-- 1.11a entity_binding_actions — scoped via binding → entity → tenant.
+ALTER TABLE eh_control.entity_binding_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eh_control.entity_binding_actions FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY entity_binding_actions_select_tenant ON eh_control.entity_binding_actions
+  FOR SELECT TO eh_service
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM eh_control.entity_bindings b
+      JOIN eh_control.entities e ON e.id = b.entity_id
+      WHERE b.id = entity_binding_actions.binding_id
         AND e.tenant_id = eh_control.current_tenant_id()
     )
   );
