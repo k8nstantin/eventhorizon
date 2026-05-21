@@ -1,6 +1,6 @@
 [package]
 name = "eh-edge-rest"
-description = "EventHorizon: REST edge — POST /v1/intent + healthz"
+description = "EventHorizon: REST edge — POST /v1/intent, GET /healthz, GET /metrics"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,20 @@ repository.workspace = true
 [lib]
 
 [dependencies]
+eh-core = { path = "../eh-core" }
+eh-protocol = { path = "../eh-protocol" }
+eh-config = { path = "../eh-config" }
+eh-router = { path = "../eh-router" }
+eh-compiler = { path = "../eh-compiler" }
+eh-connector-api = { path = "../eh-connector-api" }
+eh-telemetry = { path = "../eh-telemetry" }
+
+tokio.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+uuid.workspace = true
+thiserror.workspace = true

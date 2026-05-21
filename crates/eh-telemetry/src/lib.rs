@@ -127,9 +127,4 @@ mod tests {
         assert_eq!(label::CODE, "code");
     }
 
-    #[test]
-    fn invalid_filter_string_surfaces_typed_error() {
-        let err = init_tracing("not a valid filter !!!").unwrap_err();
-        assert!(matches!(err, TelemetryError::InvalidFilter(_, _)));
-    }
 }

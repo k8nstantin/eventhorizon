@@ -340,6 +340,70 @@ Anti-patterns (banned outright):
 
 The correct pattern is uniform: **kernel exposes contract → connector / operator uses the contract → contract is the only thing in the kernel's address space**.
 
+#### 15a. THE AGENT DOES NOT HACK THE APPLICATION
+
+This rule is absolute. Read it twice.
+
+- **The agent does not bypass the application.** Ever. Not for "just one test." Not because the gateway has a bug. Not because the binary isn't running yet. Not because it would be faster.
+- **The agent does not go directly to the database in lieu of using the application.** Direct DB inserts/updates/queries that mirror what the app's admin API / CLI / config-file loader would do are forbidden. The fact that the agent *can* connect to the database is not authorisation to do so on behalf of the application's surface.
+- **The agent does not bypass any entity constraint, schema constraint, RLS policy, grant, or CHECK clause.** Constraint refusals from the engine are the §12 debugging surface working *as designed*. The required response to a refusal is:
+  1. Stop.
+  2. Surface the refusal to the operator with the exact error.
+  3. Diagnose the application bug that caused the refused operation.
+  4. **Fix the bug** in the application code.
+  5. Restart the application.
+- **The agent does not use admin credentials to "get past" anything.** See §13 (operator owns admin; app uses service account). Switching roles to make an error go away is sabotage of the §12 debugging surface.
+- **The agent does not edit the database to repair test state.** If a test is wedged because of bad state, the answer is to tear down and re-seed via the proper init / seed scripts (which the operator owns), not to issue DML against the live store.
+- **The agent does not loosen schemas / grants / constraints to make code work.** If application code needs an operation the current schema or grant set refuses, the answer is a per-change operator-approved schema/grant PR (§7 / §10 / §11), then the application code follows.
+
+> **Crippling the app to make the agent's task easier negates the entire strategy.** The application is the test surface. If the agent edits around it, the application has never actually been used.
+
+#### 15b. The "Fix the bug, don't bypass" decision tree
+
+Every refusal / error has one and only one correct branch:
+
+```
+Engine refuses an operation (permission denied, constraint violation, RLS deny)
+│
+├─ Q: Is the application code attempting something it shouldn't (UPDATE in a SELECT/INSERT-only flow)?
+│  └─ YES → fix the code. Do not change the grant set.
+│
+├─ Q: Is the application code attempting a legitimate operation the current grants don't permit?
+│  └─ Open an issue + schema/grant PR (§11). Operator approves + applies. Then the code works.
+│
+└─ Q: Is the constraint itself wrong?
+   └─ Open an issue + schema PR (§7). Operator approves + applies. Then the code works.
+
+At no node in this tree does "bypass via admin / direct DB / loosened constraint" appear as a leaf.
+```
+
+#### 15c. Symptom checklist — if any of these is true, the agent is about to violate §15
+
+- "I'll just \`UPDATE\` the row directly to reset state."
+- "I'll log in as \`eh_admin\` for this one query."
+- "I'll \`DROP\` the constraint temporarily."
+- "I'll \`INSERT\` into \`eh_control.sources\` to register the connector instead of using the CLI."
+- "I'll edit the YAML file by hand instead of going through the loader."
+- "I'll write a test that talks to the database directly to avoid hitting the gateway."
+- "The lockdown verification keeps failing — I'll just skip those assertions."
+- "The CI guardrail flagged my code — I'll add the file to the exclusion list."
+
+Stop. Surface to the operator. Fix the bug.
+
+#### 15d. What the agent **does** do when blocked
+
+When an engine refusal, missing grant, or missing connector blocks progress:
+
+1. **Report the exact error** to the operator in plain text, including the engine message and the operation attempted.
+2. **Name the root cause hypothesis** (e.g., "the binding declares `supported_actions: [read]` but the intent is `append`", or "the `eh_service` grant on MySQL doesn't include INSERT yet").
+3. **Propose the fix** as either:
+   - An application-code change (PR), or
+   - A schema / grant / config change PR for operator approval (§7 / §10 / §11).
+4. **Wait for operator direction** before any change that touches schema, grants, or RLS.
+5. **Implement the agreed fix** through the public path. Restart the application. Verify the operation now succeeds — through the app, not by checking the database directly.
+
+The agent's job is to make the application work *correctly through its own surface*. Anything that subverts the surface is sabotage.
+
 ### Execution Loop Enforcement
 For every single action you take, you must silently ask yourself: *"Am I guessing? Am I rushing? Did I read the documentation? Am I using the same path a user would, or am I creating a back door?"* If the answer to any of these is yes, you are violating this protocol.
 </instructions>

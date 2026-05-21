@@ -1,6 +1,6 @@
 [package]
 name = "eh-ctl"
-description = "EventHorizon CLI (Phase 0 stub; subcommands land in Phase 1)"
+description = "EventHorizon CLI — sends intents to a running gateway via REST"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,3 +11,11 @@ name = "eh-ctl"
 path = "src/main.rs"
 
 [dependencies]
+eh-core = { path = "../eh-core" }
+eh-protocol = { path = "../eh-protocol" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
