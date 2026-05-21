@@ -15,13 +15,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use datafusion::catalog::{CatalogProvider, MemoryCatalogProvider};
 use eh_config::{CompiledConfig, ConfigCache, SourceConfig};
 use eh_connector_api::{
     AppendOutcome, Connector, ConnectorCaps, ConnectorError, ConnectorResult, PushdownLevel,
 };
 use eh_core::{
     Action, Artifact, ArtifactRow, CallerContext, Entity, EntityBinding, EntityField, FieldMap,
-    FieldType, Intent, Profile,
+    FieldType, Intent, Profile, SourceAccessScope,
 };
 use eh_edge_rest::{router, AppState};
 use eh_protocol::{IntentEnvelope, ResponseEnvelope};
@@ -74,6 +75,15 @@ impl Connector for StubConnector {
         _ctx: &CallerContext,
     ) -> ConnectorResult<AppendOutcome> {
         Err(ConnectorError::Unsupported(Action::Append))
+    }
+    async fn build_catalog(
+        &self,
+        _scope: &SourceAccessScope,
+    ) -> ConnectorResult<Arc<dyn CatalogProvider>> {
+        // Smoke test exercises the wire contract only; the dispatch
+        // path still uses execute_read in 1.8.3. An empty catalog
+        // satisfies the trait surface without affecting the test.
+        Ok(Arc::new(MemoryCatalogProvider::new()))
     }
 }
 

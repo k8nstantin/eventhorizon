@@ -21,8 +21,11 @@
 //! `capabilities()`; the binding's `supported_actions` further narrows
 //! what reaches the connector at runtime.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use eh_core::{Artifact, CallerContext, Entity, EntityBinding, Intent};
+use datafusion::catalog::CatalogProvider;
+use eh_core::{Artifact, CallerContext, Entity, EntityBinding, Intent, SourceAccessScope};
 
 use crate::caps::ConnectorCaps;
 use crate::errors::ConnectorResult;
@@ -81,11 +84,48 @@ pub trait Connector: Send + Sync + 'static {
         ctx: &CallerContext,
     ) -> ConnectorResult<AppendOutcome>;
 
-    // NOTE (in-flight, 2026-05-21): the steady-state data path will be
-    // `build_catalog(scope) -> Arc<dyn CatalogProvider>` — a connector
-    // exposes a USER-CONFIGURABLE catalog (single table, allow-list,
-    // whole schema, whole database) to the always-on DataFusion
-    // SessionContext. The shape is being designed in PR 1.8.2; this
-    // trait will gain that method once the AccessScope type lands in
-    // eh-core. Connectors should expect this method to arrive next.
+    /// Build a DataFusion `CatalogProvider` whose visible
+    /// schemas/tables match the operator-configured `SourceAccessScope`.
+    ///
+    /// **This is the steady-state data path** — every connector
+    /// implements it; the gateway registers the resulting catalog with
+    /// the always-on DataFusion `SessionContext` under the source's
+    /// name. DataFusion then drives reads (and writes when allowed)
+    /// through the standard `TableProvider::scan` / `insert_into` API.
+    ///
+    /// ## Defence gate #1
+    ///
+    /// The connector MUST NOT expose any table outside `scope`, even
+    /// if engine grants would allow it. Out-of-scope tables MUST NOT
+    /// appear in the returned catalog. This is the first of the three
+    /// independent gates between the agent and the database (the
+    /// others being binding-level access for `sql_passthrough` and
+    /// engine grants).
+    ///
+    /// ## Scope semantics
+    ///
+    /// * `SourceAccessScope::Table { schema, table }` — register one
+    ///   `SchemaProvider` containing one `TableProvider`.
+    /// * `SourceAccessScope::Tables { schema, tables }` — register one
+    ///   `SchemaProvider` containing the allow-listed tables. Refuse
+    ///   to start if any allow-listed table does not exist.
+    /// * `SourceAccessScope::WholeSchema { schema }` — introspect the
+    ///   backend (`information_schema` for SQL backends; equivalent
+    ///   for others) and expose every table the connector can see in
+    ///   that schema.
+    /// * `SourceAccessScope::WholeDatabase { databases }` — introspect
+    ///   each named database; expose one `SchemaProvider` per schema
+    ///   found.
+    ///
+    /// ## Phase 1.8.3 status
+    ///
+    /// The trait surface is in place. `MysqlConnector` returns a
+    /// typed `Backend("build_catalog not yet implemented in 1.8.3")`
+    /// error; the real introspection + `TableProvider` impl lands in
+    /// 1.8.4. New connector authors implement this method directly,
+    /// not the transitional `execute_*` methods above.
+    async fn build_catalog(
+        &self,
+        scope: &SourceAccessScope,
+    ) -> ConnectorResult<Arc<dyn CatalogProvider>>;
 }

@@ -129,10 +129,14 @@ impl ConnectorRegistry {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use eh_core::{Action, Artifact, CallerContext, Entity, EntityBinding, Intent};
+    use datafusion::catalog::{CatalogProvider, MemoryCatalogProvider};
+    use eh_core::{
+        Action, Artifact, CallerContext, Entity, EntityBinding, Intent, SourceAccessScope,
+    };
 
     use crate::caps::{ConnectorCaps, PushdownLevel};
     use crate::connector::Connector;
+    use crate::errors::ConnectorError;
     use crate::outcome::AppendOutcome;
 
     struct DummyConnector(&'static str);
@@ -175,6 +179,14 @@ mod tests {
             _ctx: &CallerContext,
         ) -> ConnectorResult<AppendOutcome> {
             Err(ConnectorError::Unsupported(Action::Append))
+        }
+        async fn build_catalog(
+            &self,
+            _scope: &SourceAccessScope,
+        ) -> ConnectorResult<Arc<dyn CatalogProvider>> {
+            // Dummy catalog with no schemas — registry tests don't
+            // exercise the data path.
+            Ok(Arc::new(MemoryCatalogProvider::new()))
         }
     }
 

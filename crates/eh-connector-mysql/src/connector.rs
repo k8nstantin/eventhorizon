@@ -8,11 +8,16 @@
 //! `ConnectorError::EngineRefusal` — the §12 debugging surface working
 //! as designed.
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use datafusion::catalog::CatalogProvider;
 use eh_connector_api::{
     AppendOutcome, Connector, ConnectorCaps, ConnectorError, ConnectorResult, PushdownLevel,
 };
-use eh_core::{Artifact, ArtifactRow, CallerContext, Entity, EntityBinding, Intent};
+use eh_core::{
+    Artifact, ArtifactRow, CallerContext, Entity, EntityBinding, Intent, SourceAccessScope,
+};
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode as SqlxSslMode};
 use sqlx::MySql;
 use sqlx::Pool;
@@ -186,6 +191,19 @@ impl Connector for MysqlConnector {
         Ok(AppendOutcome {
             rows_inserted: outcome.rows_affected(),
         })
+    }
+
+    async fn build_catalog(
+        &self,
+        _scope: &SourceAccessScope,
+    ) -> ConnectorResult<Arc<dyn CatalogProvider>> {
+        // The real implementation lands in PR 1.8.4: introspects
+        // information_schema (or honours the explicit allow-list), builds
+        // an Arrow schema per table, returns a CatalogProvider whose
+        // tables run parameterised SELECTs through this connector's pool.
+        Err(ConnectorError::Backend(
+            "MysqlConnector::build_catalog is not yet implemented in 1.8.3 (lands in 1.8.4)".into(),
+        ))
     }
 }
 

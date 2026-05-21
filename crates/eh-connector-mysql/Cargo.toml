@@ -23,6 +23,10 @@ rust_decimal.workspace = true
 sqlx = { workspace = true }
 tracing.workspace = true
 hex = "0.4"
+# DataFusion is always-on in EventHorizon's architecture (see memory:
+# eventhorizon-access-modes). The MySQL connector exposes a
+# CatalogProvider; DF drives the data path.
+datafusion.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
