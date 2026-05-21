@@ -16,20 +16,20 @@ The architecture is captured in [eventhorizon_architecture.md](./eventhorizon_ar
 
 | # | Name | Milestone | Window | Issue | Architecture section |
 | --- | --- | --- | --- | --- | --- |
-| 0  | Bootstrap (workspace + CI + Docker)                          | pre-V0.1 | Week 1      | _tbd_ | [§20 / P0](./eventhorizon_architecture.md#phase-0--bootstrap-pre-v01-week-1) |
-| 1  | **Walking Skeleton FVP** (MySQL + REST + CLI + compose) 🎯   | V0.1     | Weeks 2–3   | _tbd_ | [§20 / P1](./eventhorizon_architecture.md#phase-1--walking-skeleton-fvp--v01-weeks-23) |
-| 2  | `eh-edge-mcp`                                                | V0.1     | Week 4      | _tbd_ | [§20 / P2](./eventhorizon_architecture.md#phase-2--eh-edge-mcp-v01-week-4) |
-| 3  | Conformance suite + MySQL §1–§3                              | V0.1     | Week 5      | _tbd_ | [§20 / P3](./eventhorizon_architecture.md#phase-3--conformance-suite--mysql-13-v01-week-5) |
-| 4  | `eh-connector-postgres`                                      | V0.2     | Weeks 5–6   | _tbd_ | [§20 / P4](./eventhorizon_architecture.md#phase-4--eh-connector-postgres-v02-weeks-56) |
-| 5  | `eh-policy` (Cedar) + identity passthrough                   | V0.2     | Weeks 6–7   | _tbd_ | [§20 / P5](./eventhorizon_architecture.md#phase-5--eh-policy-cedar--identity-passthrough-v02-weeks-67) |
-| 6  | `eh-control-pg` (replaces YAML for live config)              | V0.2     | Weeks 7–9   | _tbd_ | [§20 / P6](./eventhorizon_architecture.md#phase-6--eh-control-pg-replaces-yaml-for-live-config-v02-weeks-79) |
-| 7  | `eh-connector-iceberg`                                       | V0.2     | Weeks 9–11  | _tbd_ | [§20 / P7](./eventhorizon_architecture.md#phase-7--eh-connector-iceberg-v02-weeks-911) |
-| 8  | `eh-telemetry` + OTel + audit sinks                          | V0.2     | Weeks 11–12 | _tbd_ | [§20 / P8](./eventhorizon_architecture.md#phase-8--eh-telemetry--otel--audit-sinks-v02-weeks-1112) |
-| 9  | `eh-cost`                                                    | V0.2     | Weeks 12–13 | _tbd_ | [§20 / P9](./eventhorizon_architecture.md#phase-9--eh-cost-v02-weeks-1213) |
-| 10 | Connector lifecycle + `eh ctl` expansion                     | V0.3     | Weeks 13–15 | _tbd_ | [§20 / P10](./eventhorizon_architecture.md#phase-10--connector-lifecycle--eh-ctl-expansion-v03-weeks-1315) |
-| 11 | Drift detector + Helm + dashboards + V1.0 release            | V1.0     | Weeks 15–16 | _tbd_ | [§20 / P11](./eventhorizon_architecture.md#phase-11--drift-detector--helm--dashboards--v10-release-v10-weeks-1516) |
-| 12 | V1.1 expansion (gRPC, UI, TF, Kafka, Snowflake/MSSQL)        | V1.1     | Weeks 16–24 | _tbd_ | [§20 / P12](./eventhorizon_architecture.md#phase-12--v11-expansion-v11-weeks-1624) |
-| 13 | V2.0 async copilot + artifact cache + recommendations        | V2.0     | TBD         | _deferred_ | [§20 / P13](./eventhorizon_architecture.md#phase-13--v20-async-copilot--artifact-cache--recommendations-v20-tbd) |
+| 0  | Bootstrap (workspace + CI + Docker)                          | pre-V0.1 | Week 1      | [#1](https://github.com/k8nstantin/eventhorizon/issues/1)  | [§20 / P0](./eventhorizon_architecture.md#phase-0--bootstrap-pre-v01-week-1) |
+| 1  | **Walking Skeleton FVP** (MySQL + REST + CLI + compose) 🎯   | V0.1     | Weeks 2–3   | [#2](https://github.com/k8nstantin/eventhorizon/issues/2)  | [§20 / P1](./eventhorizon_architecture.md#phase-1--walking-skeleton-fvp--v01-weeks-23) |
+| 2  | `eh-edge-mcp`                                                | V0.1     | Week 4      | [#3](https://github.com/k8nstantin/eventhorizon/issues/3)  | [§20 / P2](./eventhorizon_architecture.md#phase-2--eh-edge-mcp-v01-week-4) |
+| 3  | Conformance suite + MySQL §1–§3                              | V0.1     | Week 5      | [#4](https://github.com/k8nstantin/eventhorizon/issues/4)  | [§20 / P3](./eventhorizon_architecture.md#phase-3--conformance-suite--mysql-13-v01-week-5) |
+| 4  | `eh-connector-postgres`                                      | V0.2     | Weeks 5–6   | [#5](https://github.com/k8nstantin/eventhorizon/issues/5)  | [§20 / P4](./eventhorizon_architecture.md#phase-4--eh-connector-postgres-v02-weeks-56) |
+| 5  | `eh-policy` (Cedar) + identity passthrough                   | V0.2     | Weeks 6–7   | [#6](https://github.com/k8nstantin/eventhorizon/issues/6)  | [§20 / P5](./eventhorizon_architecture.md#phase-5--eh-policy-cedar--identity-passthrough-v02-weeks-67) |
+| 6  | `eh-control-pg` (replaces YAML for live config)              | V0.2     | Weeks 7–9   | [#7](https://github.com/k8nstantin/eventhorizon/issues/7)  | [§20 / P6](./eventhorizon_architecture.md#phase-6--eh-control-pg-replaces-yaml-for-live-config-v02-weeks-79) |
+| 7  | `eh-connector-iceberg`                                       | V0.2     | Weeks 9–11  | [#8](https://github.com/k8nstantin/eventhorizon/issues/8)  | [§20 / P7](./eventhorizon_architecture.md#phase-7--eh-connector-iceberg-v02-weeks-911) |
+| 8  | `eh-telemetry` + OTel + audit sinks                          | V0.2     | Weeks 11–12 | [#9](https://github.com/k8nstantin/eventhorizon/issues/9)  | [§20 / P8](./eventhorizon_architecture.md#phase-8--eh-telemetry--otel--audit-sinks-v02-weeks-1112) |
+| 9  | `eh-cost`                                                    | V0.2     | Weeks 12–13 | [#10](https://github.com/k8nstantin/eventhorizon/issues/10) | [§20 / P9](./eventhorizon_architecture.md#phase-9--eh-cost-v02-weeks-1213) |
+| 10 | Connector lifecycle + `eh ctl` expansion                     | V0.3     | Weeks 13–15 | [#11](https://github.com/k8nstantin/eventhorizon/issues/11) | [§20 / P10](./eventhorizon_architecture.md#phase-10--connector-lifecycle--eh-ctl-expansion-v03-weeks-1315) |
+| 11 | Drift detector + Helm + dashboards + V1.0 release            | V1.0     | Weeks 15–16 | [#12](https://github.com/k8nstantin/eventhorizon/issues/12) | [§20 / P11](./eventhorizon_architecture.md#phase-11--drift-detector--helm--dashboards--v10-release-v10-weeks-1516) |
+| 12 | V1.1 expansion (gRPC, UI, TF, Kafka, Snowflake/MSSQL)        | V1.1     | Weeks 16–24 | [#13](https://github.com/k8nstantin/eventhorizon/issues/13) | [§20 / P12](./eventhorizon_architecture.md#phase-12--v11-expansion-v11-weeks-1624) |
+| 13 | V2.0 async copilot + artifact cache + recommendations        | V2.0     | TBD         | [#14](https://github.com/k8nstantin/eventhorizon/issues/14) _(deferred)_ | [§20 / P13](./eventhorizon_architecture.md#phase-13--v20-async-copilot--artifact-cache--recommendations-v20-tbd) |
 
 ## Operating policy
 
