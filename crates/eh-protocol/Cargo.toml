@@ -1,6 +1,6 @@
 [package]
 name = "eh-protocol"
-description = "EventHorizon: Typed JSON schemas + OpenAPI + MCP tool descriptors for the agent surface"
+description = "EventHorizon: wire-format envelopes + structured errors for the REST/MCP edges"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,8 @@ repository.workspace = true
 [lib]
 
 [dependencies]
+eh-core = { path = "../eh-core" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true

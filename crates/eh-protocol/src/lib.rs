@@ -1,25 +1,20 @@
 //! # eh-protocol
 //!
-//! Typed JSON schemas + OpenAPI + MCP tool descriptors for the agent surface
+//! Wire-format envelopes for the REST and MCP edges. Defines what the
+//! gateway accepts and returns at the public surface, and the structured
+//! error shape every edge translates engine refusals / config errors into.
 //!
-//! ## Phase 0 status
-//! This crate is a stub. Concrete implementation arrives in a later phase per
-//! [§20 of the architecture](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#20-phased-implementation-plan).
-//! The crate exists now so the workspace compiles end-to-end.
+//! The transport-agnostic shape — `IntentEnvelope` in, `ResponseEnvelope`
+//! out — keeps the REST and MCP edges identical from the gateway's point
+//! of view; only the framing (HTTP body vs MCP tool-call result) differs.
+//!
+//! Reference: [architecture §6 / §9](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#6-edge-protocols--mcp-rest-grpc).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Placeholder until concrete implementation lands.
-#[doc(hidden)]
-pub const __PHASE_0_PLACEHOLDER: &str = "eh-protocol stub";
+mod envelope;
+mod error_response;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn placeholder_exists() {
-        assert!(!__PHASE_0_PLACEHOLDER.is_empty());
-    }
-}
+pub use envelope::{IntentEnvelope, ResponseEnvelope};
+pub use error_response::{ErrorCode, ErrorResponse};
