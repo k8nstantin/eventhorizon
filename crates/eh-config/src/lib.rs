@@ -1,25 +1,39 @@
 //! # eh-config
 //!
-//! YAML config loader for sources/entities/bindings/rules (FVP control plane)
+//! YAML configuration loader for the FVP control plane. Reads a file
+//! describing sources, entities, bindings, and routing rules, resolves
+//! `${ENV:NAME}` secret references against process environment variables,
+//! validates the structure, and yields a `CompiledConfig` ready for the
+//! router and compiler.
 //!
-//! ## Phase 0 status
-//! This crate is a stub. Concrete implementation arrives in a later phase per
-//! [§20 of the architecture](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#20-phased-implementation-plan).
-//! The crate exists now so the workspace compiles end-to-end.
+//! Phase 6+ replaces this loader's RUNTIME state with `eh-control-pg` (the
+//! durable Postgres-backed control plane). The YAML loader stays for tests
+//! and offline tooling.
+//!
+//! Reference: [architecture §5.9 / §6](https://github.com/k8nstantin/eventhorizon/blob/main/eventhorizon_architecture.md#6-edge-protocols--mcp-rest-grpc)
+//! and [SCHEMA.md §6](https://github.com/k8nstantin/eventhorizon/blob/main/SCHEMA.md#6-phase-1-worked-example--tenant-customers-table-on-mysql).
 
-#![forbid(unsafe_code)]
+// `deny` (not `forbid`) so the env-var resolver tests can scope an explicit
+// `#[allow(unsafe_code)]` around the `env::set_var` / `env::remove_var` calls
+// — those are marked `unsafe` since Rust 1.84 because they are not thread-
+// safe. Production code does not use them.
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-/// Placeholder until concrete implementation lands.
-#[doc(hidden)]
-pub const __PHASE_0_PLACEHOLDER: &str = "eh-config stub";
+mod cache;
+mod compiled;
+mod config;
+mod errors;
+mod loader;
+mod routing;
+mod secret;
+mod source;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn placeholder_exists() {
-        assert!(!__PHASE_0_PLACEHOLDER.is_empty());
-    }
-}
+pub use cache::ConfigCache;
+pub use compiled::CompiledConfig;
+pub use config::Config;
+pub use errors::{ConfigError, ConfigResult};
+pub use loader::{load_from_env, load_from_path};
+pub use routing::{RoutingMatch, RoutingRule};
+pub use secret::{Secret, SecretRef};
+pub use source::{MysqlSourceConfig, MysqlSslMode, SourceConfig};
