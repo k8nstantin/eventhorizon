@@ -1,6 +1,6 @@
 [package]
 name = "eh-telemetry"
-description = "EventHorizon: Typed TelemetryEvent enum + event bus + Sink trait + OTel integration"
+description = "EventHorizon: Tier-1 telemetry (tracing + Prometheus); Tier-2 (typed event bus + Sinks + Kafka) lands in Phase 8"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,3 +9,8 @@ repository.workspace = true
 [lib]
 
 [dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+thiserror.workspace = true

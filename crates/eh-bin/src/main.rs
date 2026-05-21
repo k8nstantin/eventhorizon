@@ -11,7 +11,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use anyhow::Context;
 use axum::{http::StatusCode, response::IntoResponse, routing::get, Json, Router};
@@ -19,11 +19,15 @@ use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::signal;
 use tracing::{info, warn};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    // Tier-1 telemetry: JSON tracing + Prometheus recorder. Log filter
+    // honours `RUST_LOG` (and falls back to a sensible default inside
+    // eh_telemetry); no hardcoded filter string here.
+    if let Err(e) = eh_telemetry::init_tracing("") {
+        eprintln!("warning: tracing init: {e}");
+    }
 
     let port: u16 = std::env::var("EH_PORT")
         .ok()
@@ -33,7 +37,17 @@ async fn main() -> anyhow::Result<()> {
         .context("EH_PORT must be a valid u16 if set")?
         .unwrap_or(8080);
 
-    let addr: SocketAddr = SocketAddr::from(([0, 0, 0, 0], port));
+    // Bind address is operator-controlled via `EH_BIND_ADDR`. Default is
+    // 0.0.0.0 because the binary is normally containerised; operators
+    // running on a host pin to a specific interface by setting the env var.
+    let bind_ip: IpAddr = std::env::var("EH_BIND_ADDR")
+        .ok()
+        .as_deref()
+        .unwrap_or("0.0.0.0")
+        .parse()
+        .context("EH_BIND_ADDR must be a valid IP address")?;
+
+    let addr: SocketAddr = SocketAddr::new(bind_ip, port);
 
     let app: Router = Router::new()
         .route("/healthz", get(healthz))
@@ -57,20 +71,6 @@ async fn main() -> anyhow::Result<()> {
 
     info!(target: "eh.shutdown", "EventHorizon stopped");
     Ok(())
-}
-
-fn init_tracing() {
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,eh=debug"));
-
-    tracing_subscriber::fmt()
-        .json()
-        .with_env_filter(filter)
-        .with_target(true)
-        .with_thread_ids(false)
-        .with_current_span(true)
-        .with_span_list(false)
-        .init();
 }
 
 #[derive(Serialize)]

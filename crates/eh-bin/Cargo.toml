@@ -11,9 +11,9 @@ name = "eh-bin"
 path = "src/main.rs"
 
 [dependencies]
+eh-telemetry = { path = "../eh-telemetry" }
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 axum.workspace = true
 anyhow.workspace = true
 serde.workspace = true

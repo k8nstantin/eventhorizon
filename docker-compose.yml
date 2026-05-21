@@ -92,8 +92,11 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
       MYSQL_EH_ADMIN_PASSWORD: ${MYSQL_EH_ADMIN_PASSWORD:?MYSQL_EH_ADMIN_PASSWORD is required}
       MYSQL_EH_SERVICE_PASSWORD: ${MYSQL_EH_SERVICE_PASSWORD:?MYSQL_EH_SERVICE_PASSWORD is required}
+    # Host port 3307 -> container 3306 to avoid conflicting with any local
+    # MySQL on the operator's machine. The gateway connects to mysql:3306
+    # inside the docker network so this remap is purely a host convenience.
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - eh-mysql-data:/var/lib/mysql
       - ./db/mysql/init:/docker-entrypoint-initdb.d:ro

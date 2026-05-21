@@ -48,6 +48,10 @@ serde_yaml = "0.9"
 # In-memory config cache (ArcSwap<CompiledConfig> for hot-swap on reload)
 arc-swap = "1.7"
 
+# Prometheus /metrics for the gateway (Tier-1 telemetry)
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+
 # sqlx — MySQL driver for eh-connector-mysql.
 # Features pinned per the FVP needs: tokio runtime + rustls TLS,
 # native uuid (BINARY(16) bind), chrono (TIMESTAMP), rust_decimal (DECIMAL).
