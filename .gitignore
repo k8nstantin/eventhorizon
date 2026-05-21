@@ -1,0 +1,25 @@
+# Rust
+/target
+Cargo.lock
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Gemini session artifacts (predates this repo)
+.gemini/
+architecture_dialog.md
+
+# Test outputs
+*.log
+coverage/
